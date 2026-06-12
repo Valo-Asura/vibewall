@@ -1,0 +1,21 @@
+wallpaper_dir = "~/Wallpaper"
+video_dir = "~/Wallpaper"
+cache_dir = "~/.cache/vibewallREzero"
+db_path = "~/.local/share/vibewallREzero/wallpapers.db"
+display_mode = "slice"
+close_on_selection = true
+enable_directory_watcher = false
+enable_wallhaven = true
+wallhaven_api_key = ""
+wallhaven_default_query = "anime landscape"
+ui_scale = 1.0
+target_open_rss_mb = 300
+target_daemon_rss_mb = 10
+
+[backend]
+image = ["noctalia", "msg", "wallpaper-set", "%monitor%", "%path%"]
+image_no_monitor = ["noctalia", "msg", "wallpaper-set", "%path%"]
+video = ["mpvpaper", "--fork", "--auto-stop", "--layer", "background", "--mpv-options", "no-audio loop hwdec=auto-safe profile=fast", "%monitor_or_star%", "%path%"]
+
+[hooks]
+after_apply = ["matugen", "image", "--source-color-index", "0", "%path%"]

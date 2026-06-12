@@ -1,0 +1,11 @@
+build/
+result
+result-*
+.cache/
+.direnv/
+*.o
+*.log
+*.tmp
+*.swp
+*.swo
+
