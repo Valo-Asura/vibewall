@@ -3,16 +3,20 @@ set -euo pipefail
 
 rss_kb() {
   local name="$1"
-  pgrep -x "$name" | while read -r pid; do
+  {
+    pgrep -x "$name" || true
+    pgrep -x ".${name:0:14}" || true
+  } | sort -u | while read -r pid; do
     awk '/VmRSS:/ { print $2 }' "/proc/$pid/status" 2>/dev/null || true
   done | awk '{ s += $1 } END { print s + 0 }'
 }
 
 start_ns="$(date +%s%N)"
-vibewall status >/dev/null
+vibewall status >/dev/null || true
+sleep 0.2
 daemon_rss="$(rss_kb vibewall-daemon)"
 
-vibewall picker --mode grid --benchmark-ready &
+vibewall-picker --mode grid --benchmark-ready &
 picker_pid="$!"
 for _ in $(seq 1 100); do
   [ -e "/tmp/vibewall-picker-ready-$picker_pid" ] && break

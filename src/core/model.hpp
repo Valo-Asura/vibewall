@@ -33,6 +33,7 @@ enum class DisplayMode {
   Slice,
   Grid,
   Hex,
+  Mosaic,
 };
 
 struct Wallpaper {

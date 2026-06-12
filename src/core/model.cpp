@@ -76,6 +76,8 @@ std::string to_string(DisplayMode mode) {
     return "grid";
   case DisplayMode::Hex:
     return "hex";
+  case DisplayMode::Mosaic:
+    return "mosaic";
   }
   return "slice";
 }
@@ -89,6 +91,9 @@ DisplayMode display_mode_from_string(const std::string &value) {
   }
   if (value == "hex") {
     return DisplayMode::Hex;
+  }
+  if (value == "mosaic" || value == "masonry") {
+    return DisplayMode::Mosaic;
   }
   throw std::runtime_error("unknown display mode: " + value);
 }

@@ -3,6 +3,7 @@
 #include "core/app_paths.hpp"
 
 #include <curl/curl.h>
+#include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <sstream>
@@ -11,6 +12,9 @@
 namespace vibewall {
 
 namespace {
+constexpr const char *kUserAgent =
+    "vibewall/0.1 (Wayland native wallpaper picker; +https://github.com/Valo-Asura/vibewall)";
+
 size_t write_string(char *ptr, size_t size, size_t nmemb, void *userdata) {
   auto *out = static_cast<std::string *>(userdata);
   out->append(ptr, size * nmemb);
@@ -36,13 +40,33 @@ void curl_download(const std::string &url, const std::filesystem::path &output, 
   }
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(curl, CURLOPT_USERAGENT, kUserAgent);
+  curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_file);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &file);
   CURLcode rc = curl_easy_perform(curl);
+  long status = 0;
+  char *content_type = nullptr;
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+  curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &content_type);
+  const std::string content_type_value = content_type == nullptr ? "" : content_type;
   curl_easy_cleanup(curl);
   if (rc != CURLE_OK) {
+    std::error_code ec;
+    std::filesystem::remove(output, ec);
     throw std::runtime_error("download failed: " + std::string(curl_easy_strerror(rc)));
+  }
+  if (status >= 400) {
+    std::error_code ec;
+    std::filesystem::remove(output, ec);
+    throw std::runtime_error("download HTTP error: " + std::to_string(status));
+  }
+  if (!content_type_value.empty() && content_type_value.rfind("image/", 0) != 0) {
+    std::error_code ec;
+    std::filesystem::remove(output, ec);
+    throw std::runtime_error("download returned non-image content");
   }
 }
 
@@ -59,6 +83,9 @@ std::string curl_get(const std::string &url, const std::string &api_key = {}) {
   }
   curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(curl, CURLOPT_USERAGENT, kUserAgent);
+  curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_string);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
@@ -111,7 +138,8 @@ std::vector<WallhavenEntry> parse_wallhaven_response(const std::string &json_tex
     entry.purity = item.value("purity", "");
     entry.category = item.value("category", "");
     if (item.contains("thumbs")) {
-      entry.preview_url = item["thumbs"].value("small", item["thumbs"].value("original", ""));
+      entry.preview_url = item["thumbs"].value(
+          "original", item["thumbs"].value("large", item["thumbs"].value("small", "")));
     }
     if (item.contains("colors")) {
       entry.colors_json = item["colors"].dump();
@@ -128,7 +156,8 @@ std::vector<WallhavenEntry> wallhaven_search(const AppConfig &config, const std:
                                              int page) {
   const int safe_page = page <= 0 ? 1 : page;
   const std::string url = "https://wallhaven.cc/api/v1/search?q=" + url_escape(query) +
-                          "&page=" + std::to_string(safe_page) + "&sorting=relevance";
+                          "&page=" + std::to_string(safe_page) +
+                          "&categories=111&purity=100&sorting=toplist&topRange=1M";
   return parse_wallhaven_response(curl_get(url, config.wallhaven_api_key));
 }
 
@@ -157,7 +186,7 @@ std::filesystem::path wallhaven_download_preview(const AppConfig &config,
   if (ext.empty()) {
     ext = ".jpg";
   }
-  const auto output = thumb_dir / (entry.id + ext.string());
+  const auto output = thumb_dir / (entry.id + "-q2" + ext.string());
   if (!std::filesystem::exists(output)) {
     curl_download(entry.preview_url, output, 20L);
   }

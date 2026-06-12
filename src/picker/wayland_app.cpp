@@ -9,6 +9,7 @@
 #include <GLES2/gl2.h>
 #include <cstring>
 #include <fcntl.h>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -64,8 +65,10 @@ EGLConfig choose_config(EGLDisplay display) {
 }
 } // namespace
 
-WaylandApp::WaylandApp(AppConfig config, Database &db, DisplayMode mode, bool benchmark_ready)
-    : config_(std::move(config)), db_(db), mode_(mode), benchmark_ready_(benchmark_ready) {}
+WaylandApp::WaylandApp(AppConfig config, Database &db, DisplayMode mode, bool benchmark_ready,
+                       bool start_wallhaven)
+    : config_(std::move(config)), db_(db), mode_(mode), benchmark_ready_(benchmark_ready),
+      start_wallhaven_(start_wallhaven) {}
 
 WaylandApp::~WaylandApp() {
   cleanup();
@@ -90,6 +93,7 @@ void WaylandApp::connect() {
                                                        ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
                                                        ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
                                                        ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+  zwlr_layer_surface_v1_set_exclusive_zone(layer_surface_, -1);
   zwlr_layer_surface_v1_set_keyboard_interactivity(
       layer_surface_, ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE);
   zwlr_layer_surface_v1_set_size(layer_surface_, 0, 0);
@@ -133,6 +137,9 @@ void WaylandApp::load_wallpapers() {
   if (wallhaven_mode_) {
     wallpapers_.clear();
     for (const auto &entry : db_.cached_wallhaven()) {
+      if (entry.thumb_path.empty() || !std::filesystem::exists(entry.thumb_path)) {
+        continue;
+      }
       Wallpaper item;
       item.path = entry.image_url;
       item.name = "wallhaven-" + entry.id;
@@ -150,15 +157,36 @@ void WaylandApp::load_wallpapers() {
   }
   Filter filter;
   filter.query = query_;
+  filter.type = type_filter_;
+  filter.color_group = color_filter_;
+  filter.favorites_only = favorites_only_;
   wallpapers_ = db_.list_wallpapers(filter);
   if (selected_ >= static_cast<int>(wallpapers_.size())) {
     selected_ = std::max(0, static_cast<int>(wallpapers_.size()) - 1);
   }
 }
 
+void WaylandApp::refresh_background_path() {
+  const std::string last =
+      db_.setting("last.applied_path").value_or(db_.setting("last.path").value_or(""));
+  if (last.empty()) {
+    background_path_.clear();
+    return;
+  }
+  if (const auto existing = db_.find_by_path(last); existing.has_value()) {
+    background_path_ = existing->type == WallpaperType::Video && !existing->thumb_path.empty()
+                           ? existing->thumb_path
+                           : existing->path;
+    return;
+  }
+  background_path_ = last;
+}
+
 void WaylandApp::redraw() {
+  refresh_background_path();
   load_wallpapers();
-  renderer_.render(wallpapers_, selected_, mode_, query_, wallhaven_mode_, status_);
+  renderer_.render(wallpapers_, selected_, mode_, query_, wallhaven_mode_, status_, type_filter_,
+                   color_filter_, favorites_only_, background_path_);
   eglSwapBuffers(egl_display_, egl_surface_);
 }
 
@@ -166,35 +194,65 @@ void WaylandApp::apply_selected() {
   if (wallpapers_.empty() || selected_ < 0 || selected_ >= static_cast<int>(wallpapers_.size())) {
     return;
   }
-  ApplyResult result;
   if (wallpapers_[selected_].type == WallpaperType::Wallhaven) {
-    WallhavenEntry match;
-    for (const auto &entry : db_.cached_wallhaven()) {
-      if (entry.image_url == wallpapers_[selected_].path ||
-          "wallhaven-" + entry.id == wallpapers_[selected_].name) {
-        match = entry;
-        break;
-      }
-    }
-    if (match.id.empty()) {
-      result = {false, "wallhaven entry not found"};
-    } else {
-      try {
-        const auto downloaded = wallhaven_download(config_, match);
-        result = apply_path(db_, config_, downloaded.string(), WallpaperType::Image);
-      } catch (const std::exception &err) {
-        result = {false, err.what()};
-      }
-    }
-  } else {
-    result = apply_wallpaper(db_, config_, wallpapers_[selected_]);
+    download_selected_wallhaven(true);
+    return;
   }
+  const ApplyResult result = apply_wallpaper(db_, config_, wallpapers_[selected_]);
   if (!result.ok) {
     std::cerr << "apply failed: " << result.message << '\n';
     status_ = "APPLY FAILED";
     redraw();
   } else if (config_.close_on_selection) {
     running_ = false;
+  }
+}
+
+std::optional<WallhavenEntry> WaylandApp::selected_wallhaven_entry() const {
+  if (wallpapers_.empty() || selected_ < 0 || selected_ >= static_cast<int>(wallpapers_.size()) ||
+      wallpapers_[selected_].type != WallpaperType::Wallhaven) {
+    return std::nullopt;
+  }
+  for (const auto &entry : db_.cached_wallhaven()) {
+    if (entry.image_url == wallpapers_[selected_].path ||
+        "wallhaven-" + entry.id == wallpapers_[selected_].name) {
+      return entry;
+    }
+  }
+  return std::nullopt;
+}
+
+void WaylandApp::download_selected_wallhaven(bool apply_after_download) {
+  const auto match = selected_wallhaven_entry();
+  if (!match.has_value()) {
+    status_ = "SELECT WEB WALLPAPER";
+    redraw();
+    return;
+  }
+  try {
+    const auto downloaded = wallhaven_download(config_, *match);
+    if (!apply_after_download) {
+      status_ = "DOWNLOADED " + downloaded.filename().string().substr(0, 24);
+      redraw();
+      return;
+    }
+    const ApplyResult result = apply_path(db_, config_, downloaded.string(), WallpaperType::Image);
+    if (!result.ok) {
+      status_ = "APPLY FAILED";
+      std::cerr << "apply failed: " << result.message << '\n';
+      redraw();
+      return;
+    }
+    if (config_.close_on_selection) {
+      running_ = false;
+    } else {
+      status_ = "DOWNLOADED + APPLIED";
+      redraw();
+    }
+  } catch (const std::exception &err) {
+    status_ = apply_after_download ? "WEB APPLY FAILED" : "DOWNLOAD FAILED";
+    std::cerr << "wallhaven download failed: " << err.what() << '\n';
+    redraw();
   }
 }
 
@@ -213,10 +271,23 @@ void WaylandApp::load_wallhaven() {
     redraw();
     return;
   }
+  if (query_.empty() && !db_.cached_wallhaven().empty()) {
+    wallhaven_mode_ = true;
+    type_filter_.reset();
+    color_filter_.reset();
+    mode_ = DisplayMode::Grid;
+    selected_ = 0;
+    status_ = "WALLHAVEN CACHE";
+    redraw();
+    return;
+  }
   const std::string search = query_.empty() ? config_.wallhaven_default_query : query_;
   try {
     cache_wallhaven_search(db_, config_, search, wallhaven_page_);
     wallhaven_mode_ = true;
+    type_filter_.reset();
+    color_filter_.reset();
+    mode_ = DisplayMode::Grid;
     selected_ = 0;
     status_ = "WALLHAVEN " + search.substr(0, 28);
   } catch (const std::exception &err) {
@@ -228,6 +299,9 @@ void WaylandApp::load_wallhaven() {
 
 void WaylandApp::show_local() {
   wallhaven_mode_ = false;
+  if (type_filter_ == WallpaperType::Wallhaven) {
+    type_filter_.reset();
+  }
   status_ = "LOCAL WALLPAPERS";
   selected_ = 0;
   redraw();
@@ -258,6 +332,27 @@ void WaylandApp::move_selection(int delta) {
   redraw();
 }
 
+void WaylandApp::set_type_filter(std::optional<WallpaperType> type) {
+  if (type == WallpaperType::Wallhaven) {
+    load_wallhaven();
+    return;
+  }
+  wallhaven_mode_ = false;
+  type_filter_ = type;
+  selected_ = 0;
+  redraw();
+}
+
+void WaylandApp::set_color_filter(std::optional<ColorGroup> color) {
+  wallhaven_mode_ = false;
+  if (type_filter_ == WallpaperType::Wallhaven) {
+    type_filter_.reset();
+  }
+  color_filter_ = color;
+  selected_ = 0;
+  redraw();
+}
+
 void WaylandApp::set_query(std::string query) {
   query_ = std::move(query);
   selected_ = 0;
@@ -277,7 +372,11 @@ int WaylandApp::run() {
   connect();
   setup_egl();
   load_wallpapers();
-  redraw();
+  if (start_wallhaven_) {
+    load_wallhaven();
+  } else {
+    redraw();
+  }
   mark_benchmark_ready();
   while (running_ && wl_display_dispatch(display_) != -1) {
   }
@@ -418,6 +517,10 @@ void WaylandApp::pointer_button(void *data, wl_pointer *, uint32_t, uint32_t, ui
       app->mode_ = DisplayMode::Hex;
       app->redraw();
       return;
+    case PickerAction::Mosaic:
+      app->mode_ = DisplayMode::Mosaic;
+      app->redraw();
+      return;
     case PickerAction::Wallhaven:
       app->load_wallhaven();
       return;
@@ -432,8 +535,70 @@ void WaylandApp::pointer_button(void *data, wl_pointer *, uint32_t, uint32_t, ui
       app->status_ = "TYPE SEARCH";
       app->redraw();
       return;
+    case PickerAction::Download:
+      app->download_selected_wallhaven(false);
+      return;
     case PickerAction::Apply:
       app->apply_selected();
+      return;
+    case PickerAction::FavoriteFilter:
+      app->favorites_only_ = !app->favorites_only_;
+      app->selected_ = 0;
+      app->redraw();
+      return;
+    case PickerAction::TypeAll:
+      app->set_type_filter(std::nullopt);
+      return;
+    case PickerAction::TypePic:
+      app->set_type_filter(WallpaperType::Image);
+      return;
+    case PickerAction::TypeVid:
+      app->set_type_filter(WallpaperType::Video);
+      return;
+    case PickerAction::TypeWeb:
+      app->set_type_filter(WallpaperType::Wallhaven);
+      return;
+    case PickerAction::ColorAll:
+      app->set_color_filter(std::nullopt);
+      return;
+    case PickerAction::ColorRed:
+      app->set_color_filter(ColorGroup::Red);
+      return;
+    case PickerAction::ColorOrange:
+      app->set_color_filter(ColorGroup::Orange);
+      return;
+    case PickerAction::ColorYellow:
+      app->set_color_filter(ColorGroup::Yellow);
+      return;
+    case PickerAction::ColorLime:
+      app->set_color_filter(ColorGroup::Lime);
+      return;
+    case PickerAction::ColorGreen:
+      app->set_color_filter(ColorGroup::Green);
+      return;
+    case PickerAction::ColorCyan:
+      app->set_color_filter(ColorGroup::Cyan);
+      return;
+    case PickerAction::ColorBlue:
+      app->set_color_filter(ColorGroup::Blue);
+      return;
+    case PickerAction::ColorPurple:
+      app->set_color_filter(ColorGroup::Purple);
+      return;
+    case PickerAction::ColorPink:
+      app->set_color_filter(ColorGroup::Pink);
+      return;
+    case PickerAction::ColorBrown:
+      app->set_color_filter(ColorGroup::Brown);
+      return;
+    case PickerAction::ColorWhite:
+      app->set_color_filter(ColorGroup::White);
+      return;
+    case PickerAction::ColorGray:
+      app->set_color_filter(ColorGroup::Gray);
+      return;
+    case PickerAction::ColorBlack:
+      app->set_color_filter(ColorGroup::Black);
       return;
     case PickerAction::None:
       break;
@@ -441,7 +606,12 @@ void WaylandApp::pointer_button(void *data, wl_pointer *, uint32_t, uint32_t, ui
     const int hit = app->renderer_.hit_test(app->pointer_x_, app->pointer_y_);
     if (hit >= 0) {
       app->selected_ = hit;
-      app->apply_selected();
+      if (app->wallpapers_[hit].type == WallpaperType::Wallhaven) {
+        app->status_ = "WEB SELECTED - ENTER APPLY - D DOWNLOAD";
+        app->redraw();
+      } else {
+        app->apply_selected();
+      }
     } else if (!app->renderer_.stage_contains(app->pointer_x_, app->pointer_y_)) {
       app->running_ = false;
     }
@@ -560,6 +730,11 @@ void WaylandApp::keyboard_key(void *data, wl_keyboard *, uint32_t, uint32_t, uin
     app->redraw();
     return;
   }
+  if (sym == XKB_KEY_4) {
+    app->mode_ = DisplayMode::Mosaic;
+    app->redraw();
+    return;
+  }
   if (sym == XKB_KEY_w || sym == XKB_KEY_W) {
     app->load_wallhaven();
     return;
@@ -570,6 +745,10 @@ void WaylandApp::keyboard_key(void *data, wl_keyboard *, uint32_t, uint32_t, uin
   }
   if (sym == XKB_KEY_r || sym == XKB_KEY_R) {
     app->apply_random();
+    return;
+  }
+  if (sym == XKB_KEY_d || sym == XKB_KEY_D) {
+    app->download_selected_wallhaven(false);
     return;
   }
   if (sym == XKB_KEY_f || sym == XKB_KEY_F) {

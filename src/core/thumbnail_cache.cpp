@@ -53,15 +53,15 @@ ThumbnailInfo create_image_thumbnail(const AppConfig &config, const std::filesys
   init_vips_once();
   const auto thumb_dir = config.cache_dir / "thumbs";
   ensure_dir(thumb_dir);
-  const auto thumb_path = thumb_dir / (fnv1a_hex(source.string()) + ".webp");
+  const auto thumb_path = thumb_dir / (fnv1a_hex(source.string() + "|q2-960") + ".webp");
 
   vips::VImage original = vips::VImage::new_from_file(
       source.c_str(), vips::VImage::option()->set("access", "sequential"));
   const int source_width = original.width();
   const int source_height = original.height();
   if (!std::filesystem::exists(thumb_path)) {
-    vips::VImage thumb = original.thumbnail_image(320, vips::VImage::option()->set("height", 220));
-    thumb.write_to_file(thumb_path.c_str());
+    vips::VImage thumb = original.thumbnail_image(960, vips::VImage::option()->set("height", 540));
+    thumb.write_to_file(thumb_path.c_str(), vips::VImage::option()->set("Q", 86));
   }
   vips::VImage thumb_for_average = vips::VImage::new_from_file(thumb_path.c_str());
   return {thumb_path, average_rgb(thumb_for_average), source_width, source_height};

@@ -6,6 +6,7 @@
 
 #include <EGL/egl.h>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 #include <wayland-client.h>
@@ -19,7 +20,8 @@ namespace vibewall::picker {
 
 class WaylandApp {
 public:
-  WaylandApp(AppConfig config, Database &db, DisplayMode mode, bool benchmark_ready);
+  WaylandApp(AppConfig config, Database &db, DisplayMode mode, bool benchmark_ready,
+             bool start_wallhaven = false);
   ~WaylandApp();
   WaylandApp(const WaylandApp &) = delete;
   WaylandApp &operator=(const WaylandApp &) = delete;
@@ -70,13 +72,18 @@ private:
   Database &db_;
   DisplayMode mode_;
   bool benchmark_ready_ = false;
+  bool start_wallhaven_ = false;
   bool running_ = true;
   bool configured_ = false;
   bool search_active_ = false;
   bool wallhaven_mode_ = false;
+  bool favorites_only_ = false;
   int wallhaven_page_ = 1;
+  std::optional<WallpaperType> type_filter_;
+  std::optional<ColorGroup> color_filter_;
   std::string query_;
   std::string status_;
+  std::string background_path_;
   std::vector<Wallpaper> wallpapers_;
   int selected_ = 0;
 
@@ -105,13 +112,18 @@ private:
   void connect();
   void setup_egl();
   void load_wallpapers();
+  void refresh_background_path();
   void redraw();
   void apply_selected();
+  std::optional<WallhavenEntry> selected_wallhaven_entry() const;
+  void download_selected_wallhaven(bool apply_after_download);
   void toggle_favorite();
   void load_wallhaven();
   void show_local();
   void apply_random();
   void move_selection(int delta);
+  void set_type_filter(std::optional<WallpaperType> type);
+  void set_color_filter(std::optional<ColorGroup> color);
   void set_query(std::string query);
   void mark_benchmark_ready() const;
   void cleanup();

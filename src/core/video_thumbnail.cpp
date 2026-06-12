@@ -33,11 +33,11 @@ bool is_image_extension(const std::filesystem::path &path) {
 ThumbnailInfo create_video_thumbnail(const AppConfig &config, const std::filesystem::path &source) {
   const auto thumb_dir = config.cache_dir / "thumbs";
   ensure_dir(thumb_dir);
-  const auto thumb_path = thumb_dir / (fnv1a_hex(source.string()) + ".png");
+  const auto thumb_path = thumb_dir / (fnv1a_hex(source.string() + "|q2-960") + ".png");
   if (!std::filesystem::exists(thumb_path)) {
     const auto result = run_process({"ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
                                      "-ss", "00:00:00.1", "-i", source.string(), "-frames:v", "1",
-                                     "-vf", "scale=min(320\\,iw):-2,format=rgba", "-update", "1",
+                                     "-vf", "scale=min(960\\,iw):-2,format=rgba", "-update", "1",
                                      thumb_path.string()});
     if (result.exit_code != 0 || !std::filesystem::exists(thumb_path)) {
       throw std::runtime_error("ffmpeg thumbnail failed for " + source.string());
