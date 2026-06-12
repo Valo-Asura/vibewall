@@ -109,7 +109,7 @@ vibewall wallhaven search "city night" --page 1
 |---|---|
 | ![Slice picker](screenshots/vibewallrezero-slice.png) | ![Grid picker](screenshots/vibewallrezero-grid.png) |
 
-| Hex | Video wallpaper |
+| Hex | what now! gotcha|
 |---|---|
 | ![Hex picker](screenshots/vibewallrezero-hex.png) | ![Video wallpaper applied](screenshots/vibewallrezero-video-applied.png) |
 
