@@ -107,6 +107,7 @@ private:
   int height_ = 760;
   float pointer_x_ = 0.0F;
   float pointer_y_ = 0.0F;
+  double scroll_accumulator_ = 0.0;
   Renderer renderer_;
 
   void connect();
@@ -118,10 +119,12 @@ private:
   std::optional<WallhavenEntry> selected_wallhaven_entry() const;
   void download_selected_wallhaven(bool apply_after_download);
   void toggle_favorite();
+  void toggle_favorite_at(int index);
   void load_wallhaven();
   void show_local();
   void apply_random();
   void move_selection(int delta);
+  int scroll_step() const;
   void set_type_filter(std::optional<WallpaperType> type);
   void set_color_filter(std::optional<ColorGroup> color);
   void set_query(std::string query);

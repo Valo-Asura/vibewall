@@ -7,6 +7,7 @@
 #undef namespace
 
 #include <GLES2/gl2.h>
+#include <cmath>
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
@@ -257,11 +258,26 @@ void WaylandApp::download_selected_wallhaven(bool apply_after_download) {
 }
 
 void WaylandApp::toggle_favorite() {
-  if (wallpapers_.empty() || selected_ < 0 || selected_ >= static_cast<int>(wallpapers_.size())) {
+  toggle_favorite_at(selected_);
+}
+
+void WaylandApp::toggle_favorite_at(int index) {
+  if (wallpapers_.empty()) {
+    return;
+  }
+  if (index < 0 || index >= static_cast<int>(wallpapers_.size())) {
+    return;
+  }
+  selected_ = index;
+  if (wallpapers_[selected_].type == WallpaperType::Wallhaven) {
+    status_ = "DOWNLOAD WEB FIRST";
+    redraw();
     return;
   }
   const bool next = !wallpapers_[selected_].favorite;
   db_.set_favorite(wallpapers_[selected_].path, next);
+  wallpapers_[selected_].favorite = next;
+  status_ = next ? "FAVORITE SAVED" : "FAVORITE REMOVED";
   redraw();
 }
 
@@ -330,6 +346,20 @@ void WaylandApp::move_selection(int delta) {
     selected_ = static_cast<int>(wallpapers_.size()) - 1;
   }
   redraw();
+}
+
+int WaylandApp::scroll_step() const {
+  switch (mode_) {
+  case DisplayMode::Grid:
+    return width_ >= 1500 ? 5 : (width_ >= 1100 ? 4 : 3);
+  case DisplayMode::Mosaic:
+    return width_ >= 1500 ? 5 : 4;
+  case DisplayMode::Hex:
+    return width_ >= 1500 ? 7 : (width_ >= 1100 ? 5 : 3);
+  case DisplayMode::Slice:
+    return 1;
+  }
+  return 1;
 }
 
 void WaylandApp::set_type_filter(std::optional<WallpaperType> type) {
@@ -603,6 +633,11 @@ void WaylandApp::pointer_button(void *data, wl_pointer *, uint32_t, uint32_t, ui
     case PickerAction::None:
       break;
     }
+    const int favorite_hit = app->renderer_.favorite_hit_test(app->pointer_x_, app->pointer_y_);
+    if (favorite_hit >= 0) {
+      app->toggle_favorite_at(favorite_hit);
+      return;
+    }
     const int hit = app->renderer_.hit_test(app->pointer_x_, app->pointer_y_);
     if (hit >= 0) {
       app->selected_ = hit;
@@ -617,9 +652,29 @@ void WaylandApp::pointer_button(void *data, wl_pointer *, uint32_t, uint32_t, ui
     }
   }
 }
-void WaylandApp::pointer_axis(void *data, wl_pointer *, uint32_t, uint32_t, wl_fixed_t value) {
+void WaylandApp::pointer_axis(void *data, wl_pointer *, uint32_t, uint32_t axis, wl_fixed_t value) {
   auto *app = static_cast<WaylandApp *>(data);
-  app->move_selection(wl_fixed_to_double(value) > 0 ? 1 : -1);
+  if (axis != WL_POINTER_AXIS_VERTICAL_SCROLL && axis != WL_POINTER_AXIS_HORIZONTAL_SCROLL) {
+    return;
+  }
+  const double amount = wl_fixed_to_double(value);
+  if (std::abs(amount) < 0.01) {
+    return;
+  }
+  constexpr double tick = 15.0;
+  app->scroll_accumulator_ += amount;
+  int steps = 0;
+  while (app->scroll_accumulator_ >= tick) {
+    ++steps;
+    app->scroll_accumulator_ -= tick;
+  }
+  while (app->scroll_accumulator_ <= -tick) {
+    --steps;
+    app->scroll_accumulator_ += tick;
+  }
+  if (steps != 0) {
+    app->move_selection(steps * app->scroll_step());
+  }
 }
 void WaylandApp::pointer_frame(void *, wl_pointer *) {}
 void WaylandApp::pointer_axis_source(void *, wl_pointer *, uint32_t) {}
@@ -708,11 +763,11 @@ void WaylandApp::keyboard_key(void *data, wl_keyboard *, uint32_t, uint32_t, uin
     return;
   }
   if (sym == XKB_KEY_Up) {
-    app->move_selection(-4);
+    app->move_selection(-app->scroll_step());
     return;
   }
   if (sym == XKB_KEY_Down) {
-    app->move_selection(4);
+    app->move_selection(app->scroll_step());
     return;
   }
   if (sym == XKB_KEY_1) {

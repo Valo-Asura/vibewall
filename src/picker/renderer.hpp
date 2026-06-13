@@ -61,6 +61,14 @@ struct ActionRegion {
   float h = 0.0F;
 };
 
+struct FavoriteRegion {
+  int index = -1;
+  float x = 0.0F;
+  float y = 0.0F;
+  float w = 0.0F;
+  float h = 0.0F;
+};
+
 struct TextureInfo {
   GLuint id = 0;
   int width = 0;
@@ -77,6 +85,7 @@ public:
               const std::optional<ColorGroup> &color_filter, bool favorites_only,
               const std::string &background_path);
   int hit_test(float x, float y) const;
+  int favorite_hit_test(float x, float y) const;
   PickerAction action_hit_test(float x, float y) const;
   bool stage_contains(float x, float y) const;
 
@@ -92,6 +101,7 @@ private:
   std::map<std::string, TextureInfo> textures_;
   std::vector<HitRegion> hit_regions_;
   std::vector<ActionRegion> action_regions_;
+  std::vector<FavoriteRegion> favorite_regions_;
   float stage_x_ = 0.0F;
   float stage_y_ = 0.0F;
   float stage_w_ = 1.0F;
@@ -125,7 +135,7 @@ private:
                   float b);
   void draw_tiny_badge(float x, float y, const std::string &label, float r, float g, float b);
   void draw_wallpaper_badges(float x, float y, float w, float h, const Wallpaper &wallpaper,
-                             bool selected);
+                             bool selected, int index);
   void render_toolbar(const std::vector<Wallpaper> &wallpapers, DisplayMode mode,
                       const std::string &query, bool wallhaven_mode, const std::string &status,
                       const std::optional<WallpaperType> &type_filter,

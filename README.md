@@ -42,10 +42,14 @@ command-line workflow.
 - Systemd-backed `vibewall toggle` startup, so the first `SUPER+W` press opens
   the picker instead of only waking the daemon.
 - Click outside the centered picker stage to close.
+- Mouse wheel / touchpad scrolls in mode-aware steps: one item in slice mode,
+  visible row chunks in grid/mosaic/hex.
 - Full-opacity wallpaper previews with aspect-ratio cover cropping.
 - Transparent background: the active workspace/app stays visible behind the
   centered picker; only toolbar/cards draw translucent panels.
-- SQLite wallpaper database with tags, favourites, filters, colour groups, and
+- Per-card `STAR` / `FAV` chip toggles a local wallpaper favorite without
+  applying it. The `FAV` toolbar chip filters favorites only.
+- SQLite wallpaper database with tags, favorites, filters, color groups, and
   last-used restore state.
 - Image thumbnails through libvips and video thumbnails through ffmpeg.
 - Wallhaven paginated search/cache/download/apply.
@@ -93,9 +97,12 @@ vibewall wallhaven search "city night" --page 1
 | `3` | Hex mode |
 | `4` | Mosaic mode |
 | `Left/Right/Up/Down` | Navigate |
+| Mouse wheel / touchpad | Navigate by mode-aware scroll step |
 | `Enter` | Apply selected; Wallhaven downloads then applies |
 | `D` | Download selected Wallhaven wallpaper without applying |
-| `F` | Toggle favourite |
+| `F` | Toggle selected wallpaper favorite |
+| `STAR` / `FAV` card chip | Toggle that card favorite without applying |
+| `FAV` toolbar chip | Show favorites only |
 | `W` | Search/cache Wallhaven and show remote previews |
 | `L` | Return to local wallpapers |
 | `R` | Apply random wallpaper |
@@ -121,6 +128,10 @@ vibewall wallhaven search "city night" --page 1
 |---|
 | ![Transparent overlay](screenshots/vibewallrezero-transparent-overlay.png) |
 
+| Favorite chips |
+|---|
+| ![Favorite chip proof](screenshots/vibewallrezero-favorite-proof.png) |
+
 ## NixOS
 
 The module at `nix/module.nix` installs the package, enables the user daemon,
@@ -144,15 +155,31 @@ Run:
 benchmark.sh
 ```
 
-Recent package benchmark on the Asura XS15:
+Recent package benchmark on the Asura XS15, measured from the Nix-built package:
 
 ```text
-daemon_rss_kb=2844
-picker_startup_ms=1642
-picker_ready_rss_kb=252828
+package_store_size=1.2M
+cache_size=16M
+data_size=104K
+config_size=8.0K
+daemon_rss_kb=5948
+daemon_cpu_percent=0.0
+picker_startup_ms=1471
+picker_ready_rss_kb=330444
 picker_idle_cpu_ticks_10s=0
 idle_redraw_policy=event-driven
 ```
+
+Notes:
+
+- The long-running daemon stays around 6 MiB RSS and does not render/decode UI
+  assets.
+- The picker is short-lived. Its ready-state RSS is higher because preview
+  thumbnails are decoded into OpenGL textures, then released when the picker
+  closes.
+- Cache storage is thumbnail/Wallhaven preview data under
+  `~/.cache/vibewallREzero`; SQLite state lives under
+  `~/.local/share/vibewallREzero`.
 
 ## Safety Notes
 

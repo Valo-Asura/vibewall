@@ -649,13 +649,27 @@ void Renderer::draw_tiny_badge(float x, float y, const std::string &label, float
 }
 
 void Renderer::draw_wallpaper_badges(float x, float y, float w, float h, const Wallpaper &wallpaper,
-                                     bool selected) {
+                                     bool selected, int index) {
   draw_tiny_badge(x + 5.0F, y + h - 17.0F, type_label(wallpaper.type), 0.52F, 0.96F, 0.78F);
-  if (wallpaper.type == WallpaperType::Video) {
-    draw_tiny_badge(x + w - 34.0F, y + 5.0F, "PLAY", 0.52F, 0.96F, 0.78F);
+  const bool can_favorite = wallpaper.type != WallpaperType::Wallhaven && index >= 0 && w > 72.0F;
+  const float favorite_w = wallpaper.favorite ? 30.0F : 42.0F;
+  const float favorite_x = x + w - favorite_w - 5.0F;
+  const float favorite_y = y + 5.0F;
+  if (can_favorite) {
+    draw_rect(favorite_x, favorite_y, favorite_w, 15.0F, wallpaper.favorite ? 0.98F : 0.010F,
+              wallpaper.favorite ? 0.74F : 0.018F, wallpaper.favorite ? 0.28F : 0.022F,
+              wallpaper.favorite ? 0.94F : 0.76F);
+    draw_rect(favorite_x, favorite_y, 2.0F, 15.0F, 0.98F, 0.74F, 0.28F, 0.96F);
+    draw_text(favorite_x + 5.0F, favorite_y + 5.0F, wallpaper.favorite ? "FAV" : "STAR", 0.76F,
+              wallpaper.favorite ? 0.03F : 0.98F, wallpaper.favorite ? 0.04F : 0.74F,
+              wallpaper.favorite ? 0.02F : 0.28F, 1.0F);
+    favorite_regions_.push_back({index, favorite_x, favorite_y, favorite_w, 15.0F});
   }
-  if (wallpaper.favorite) {
-    draw_tiny_badge(x + w - 34.0F, y + h - 17.0F, "FAV", 0.98F, 0.74F, 0.28F);
+  if (wallpaper.type == WallpaperType::Video) {
+    const float play_x = can_favorite ? favorite_x - 38.0F : x + w - 34.0F;
+    if (play_x > x + 6.0F) {
+      draw_tiny_badge(play_x, y + 5.0F, "PLAY", 0.52F, 0.96F, 0.78F);
+    }
   }
   if (selected) {
     draw_tiny_badge(x + 5.0F, y + 5.0F, "CURRENT", 0.52F, 0.96F, 0.78F);
@@ -723,7 +737,7 @@ void Renderer::render_toolbar(const std::vector<Wallpaper> &wallpapers, DisplayM
   const float color_y = y + (wallhaven_mode ? 72.0F : 66.0F);
   const float all_w = draw_chip(color_x, color_y, "ALL", !color_filter.has_value(), 0.52F, 0.96F,
                                 0.78F);
-    add_action_region(PickerAction::ColorAll, color_x, color_y, all_w, 24.0F);
+  add_action_region(PickerAction::ColorAll, color_x, color_y, all_w, 24.0F);
   color_x += all_w + 6.0F;
   for (ColorGroup group : color_groups()) {
     const auto color = color_from_group(group);
@@ -774,6 +788,7 @@ void Renderer::render(const std::vector<Wallpaper> &wallpapers, int selected, Di
   (void)background_path;
   hit_regions_.clear();
   action_regions_.clear();
+  favorite_regions_.clear();
   update_stage(mode);
   glClearColor(0.0F, 0.0F, 0.0F, 0.0F);
   glClear(GL_COLOR_BUFFER_BIT);
@@ -835,7 +850,7 @@ void Renderer::render_grid(const std::vector<Wallpaper> &wallpapers, int selecte
     if (i != selected) {
       draw_rect(x, y, cell_w, cell_h, 0.0F, 0.0F, 0.0F, 0.05F);
     }
-    draw_wallpaper_badges(x, y, cell_w, cell_h, wallpapers[i], i == selected);
+    draw_wallpaper_badges(x, y, cell_w, cell_h, wallpapers[i], i == selected, i);
     if (i == selected) {
       draw_rect(x, y + cell_h - 28, cell_w, 28, 0.02F, 0.025F, 0.032F, 0.58F);
       draw_text(x + 48, y + cell_h - 19, short_name(wallpapers[i], 24), 1.45F, 0.94F, 0.96F,
@@ -876,7 +891,8 @@ void Renderer::render_slice(const std::vector<Wallpaper> &wallpapers, int select
     }
     draw_wallpaper_polygon(inner, wallpapers[index], 0.82F);
     draw_rect(x, y, w, h, 0.0F, 0.0F, 0.0F, 0.18F);
-    draw_wallpaper_badges(x + 4.0F, y + 8.0F, w - 8.0F, h - 16.0F, wallpapers[index], false);
+    draw_wallpaper_badges(x + 4.0F, y + 8.0F, w - 8.0F, h - 16.0F, wallpapers[index], false,
+                          index);
     hit_regions_.push_back({index, poly});
   }
   if (selected >= 0 && selected < count) {
@@ -887,7 +903,7 @@ void Renderer::render_slice(const std::vector<Wallpaper> &wallpapers, int select
     draw_rect(x - 7, y - 7, w + 14, h + 14, 0.52F, 0.96F, 0.78F, 0.98F);
     draw_rect(x - 13, y - 13, w + 26, h + 26, 0.52F, 0.96F, 0.78F, 0.12F);
     draw_wallpaper_preview(x, y, w, h, wallpapers[selected], 1.0F);
-    draw_wallpaper_badges(x, y, w, h, wallpapers[selected], true);
+    draw_wallpaper_badges(x, y, w, h, wallpapers[selected], true, selected);
     draw_rect(x, y + h - 34, w, 34, 0.02F, 0.025F, 0.032F, 0.56F);
     draw_text(x + 16, y + h - 23, short_name(wallpapers[selected], 42), 1.65F, 0.96F, 0.97F, 1.0F,
               1.0F);
@@ -944,8 +960,21 @@ void Renderer::render_hex(const std::vector<Wallpaper> &wallpapers, int selected
     }
     draw_tiny_badge(cx - r * 0.36F, cy + r * 0.46F, type_label(wallpapers[i].type), 0.52F, 0.96F,
                     0.78F);
+    if (wallpapers[i].type != WallpaperType::Wallhaven) {
+      const float fav_w = wallpapers[i].favorite ? 30.0F : 42.0F;
+      const float fav_x = cx + r * 0.18F;
+      const float fav_y = cy - r * 0.56F;
+      draw_rect(fav_x, fav_y, fav_w, 15.0F, wallpapers[i].favorite ? 0.98F : 0.010F,
+                wallpapers[i].favorite ? 0.74F : 0.018F, wallpapers[i].favorite ? 0.28F : 0.022F,
+                wallpapers[i].favorite ? 0.94F : 0.76F);
+      draw_rect(fav_x, fav_y, 2.0F, 15.0F, 0.98F, 0.74F, 0.28F, 0.96F);
+      draw_text(fav_x + 5.0F, fav_y + 5.0F, wallpapers[i].favorite ? "FAV" : "STAR", 0.76F,
+                wallpapers[i].favorite ? 0.03F : 0.98F, wallpapers[i].favorite ? 0.04F : 0.74F,
+                wallpapers[i].favorite ? 0.02F : 0.28F, 1.0F);
+      favorite_regions_.push_back({i, fav_x, fav_y, fav_w, 15.0F});
+    }
     if (wallpapers[i].type == WallpaperType::Video) {
-      draw_tiny_badge(cx + r * 0.24F, cy - r * 0.52F, "PLAY", 0.52F, 0.96F, 0.78F);
+      draw_tiny_badge(cx - r * 0.46F, cy - r * 0.56F, "PLAY", 0.52F, 0.96F, 0.78F);
     }
     if (i == selected) {
       draw_rect(cx - r * 1.18F, cy + r * 0.76F, r * 2.36F, 24.0F, 0.02F, 0.025F, 0.032F, 0.58F);
@@ -1020,7 +1049,7 @@ void Renderer::render_mosaic(const std::vector<Wallpaper> &wallpapers, int selec
     if (i != selected) {
       draw_rect(x, y, w, h, 0.0F, 0.0F, 0.0F, 0.04F);
     }
-    draw_wallpaper_badges(x, y, w, h, wallpapers[i], i == selected);
+    draw_wallpaper_badges(x, y, w, h, wallpapers[i], i == selected, i);
     hit_regions_.push_back({i, {{x, y}, {x + w, y}, {x + w, y + h}, {x, y + h}}});
 
     col_y[static_cast<std::size_t>(col)] += h + gap;
@@ -1039,6 +1068,15 @@ int Renderer::hit_test(float x, float y) const {
   return -1;
 }
 
+int Renderer::favorite_hit_test(float x, float y) const {
+  for (const auto &region : favorite_regions_) {
+    if (x >= region.x && x <= region.x + region.w && y >= region.y && y <= region.y + region.h) {
+      return region.index;
+    }
+  }
+  return -1;
+}
+
 PickerAction Renderer::action_hit_test(float x, float y) const {
   for (const auto &region : action_regions_) {
     if (x >= region.x && x <= region.x + region.w && y >= region.y && y <= region.y + region.h) {
@@ -1049,7 +1087,8 @@ PickerAction Renderer::action_hit_test(float x, float y) const {
 }
 
 bool Renderer::stage_contains(float x, float y) const {
-  if (action_hit_test(x, y) != PickerAction::None || hit_test(x, y) >= 0) {
+  if (action_hit_test(x, y) != PickerAction::None || favorite_hit_test(x, y) >= 0 ||
+      hit_test(x, y) >= 0) {
     return true;
   }
   return false;

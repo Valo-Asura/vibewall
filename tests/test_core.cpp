@@ -41,6 +41,8 @@ int main() {
   Filter fav;
   fav.favorites_only = true;
   assert(db.list_wallpapers(fav).size() == 1);
+  db.set_favorite(wp.path, false);
+  assert(db.list_wallpapers(fav).empty());
 
   db.add_tag(wp.path, "city");
   Filter tag_filter;
