@@ -162,10 +162,18 @@ package_store_size=1.2M
 cache_size=16M
 data_size=104K
 config_size=8.0K
-daemon_rss_kb=5948
+daemon_rss_kb=5220
 daemon_cpu_percent=0.0
-picker_startup_ms=1471
-picker_ready_rss_kb=330444
+picker_startup_ms=1486
+picker_ready_rss_kb=250440
+picker_ready_cpu_percent=108.0
+opened_app_rss_kb=250440
+mpvpaper_rss_kb=97584
+mpvpaper_cpu_percent=6.7
+hyprpaper_rss_kb=0
+hyprpaper_cpu_percent=0.0
+noctalia_rss_kb=87272
+noctalia_cpu_percent=3.8
 picker_idle_cpu_ticks_10s=0
 idle_redraw_policy=event-driven
 ```
@@ -177,6 +185,11 @@ Notes:
 - The picker is short-lived. Its ready-state RSS is higher because preview
   thumbnails are decoded into OpenGL textures, then released when the picker
   closes.
+- Video wallpapers are intentionally external: `mpvpaper` used about 98 MiB RSS
+  and measurable CPU with the current active video, while `hyprpaper` was not
+  running.
+- `opened_app_rss_kb` is the picker while open. It should disappear after the
+  picker closes; only the daemon is designed to remain resident.
 - Cache storage is thumbnail/Wallhaven preview data under
   `~/.cache/vibewallREzero`; SQLite state lives under
   `~/.local/share/vibewallREzero`.

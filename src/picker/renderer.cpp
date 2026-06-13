@@ -303,7 +303,7 @@ void Renderer::update_stage(DisplayMode mode) {
   content_y_ = 150.0F;
   if (mode == DisplayMode::Slice) {
     max_content_w = 1540.0F;
-    content_y_ = std::max(150.0F, screen_h * 0.23F);
+    content_y_ = std::clamp(screen_h * 0.16F, 132.0F, 190.0F);
   } else if (mode == DisplayMode::Hex) {
     max_content_w = 1180.0F;
     content_y_ = 138.0F;
@@ -866,7 +866,8 @@ void Renderer::render_slice(const std::vector<Wallpaper> &wallpapers, int select
     return;
   }
   const float center_x = static_cast<float>(width_) * 0.5F;
-  const float center_y = static_cast<float>(height_) * 0.69F;
+  const float center_y = std::clamp(static_cast<float>(height_) * 0.53F, 420.0F,
+                                    static_cast<float>(height_) - 300.0F);
   const float side_h = std::clamp(static_cast<float>(height_) * 0.39F, 260.0F, 410.0F);
   const float side_w = std::clamp(static_cast<float>(width_) * 0.055F, 72.0F, 122.0F);
   const float side_step = std::clamp(static_cast<float>(width_) * 0.048F, 58.0F, 94.0F);
