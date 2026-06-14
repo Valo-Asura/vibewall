@@ -5,9 +5,12 @@
 #include "picker/renderer.hpp"
 
 #include <EGL/egl.h>
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 #include <wayland-client.h>
 #include <wayland-egl.h>
@@ -79,6 +82,8 @@ private:
   bool wallhaven_mode_ = false;
   bool favorites_only_ = false;
   bool wallhaven_sfw_ = true;
+  std::atomic<bool> wallhaven_loading_ = false;
+  std::atomic<bool> wallhaven_done_ = false;
   int wallhaven_page_ = 1;
   std::string wallhaven_sort_ = "toplist"; // toplist | date_added | views | hot
   std::optional<WallpaperType> type_filter_;
@@ -112,6 +117,11 @@ private:
   float pointer_y_ = 0.0F;
   double scroll_accumulator_ = 0.0;
   Renderer renderer_;
+  std::thread wallhaven_worker_;
+  std::mutex wallhaven_mutex_;
+  bool wallhaven_pending_success_ = false;
+  int wallhaven_pending_page_ = 1;
+  std::string wallhaven_pending_status_;
 
   void connect();
   void setup_egl();
@@ -126,6 +136,8 @@ private:
   void load_wallhaven();
   void load_wallhaven_next_page();
   void set_wallhaven_sort(const std::string &sort);
+  void start_wallhaven_load(int page, bool reset_view, std::string loading_status);
+  void finish_wallhaven_load_if_ready();
   void show_local();
   void apply_random();
   void move_selection(int delta);

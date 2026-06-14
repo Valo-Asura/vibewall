@@ -85,6 +85,8 @@ Database::Database(const std::filesystem::path &path) {
     const std::string err = db_ == nullptr ? "unknown" : sqlite3_errmsg(db_);
     throw std::runtime_error("failed to open sqlite db " + path.string() + ": " + err);
   }
+  exec("PRAGMA busy_timeout = 5000");
+  exec("PRAGMA journal_mode = WAL");
   exec("PRAGMA foreign_keys = ON");
 }
 

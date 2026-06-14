@@ -42,7 +42,8 @@ void curl_download(const std::string &url, const std::filesystem::path &output, 
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
   curl_easy_setopt(curl, CURLOPT_USERAGENT, kUserAgent);
   curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
-  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+  curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 4L);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_file);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &file);
@@ -85,8 +86,9 @@ std::string curl_get(const std::string &url, const std::string &api_key = {}) {
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
   curl_easy_setopt(curl, CURLOPT_USERAGENT, kUserAgent);
   curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
-  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+  curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_string);
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
   CURLcode rc = curl_easy_perform(curl);
@@ -191,7 +193,7 @@ std::filesystem::path wallhaven_download_preview(const AppConfig &config,
   }
   const auto output = thumb_dir / (entry.id + "-q2" + ext.string());
   if (!std::filesystem::exists(output)) {
-    curl_download(entry.preview_url, output, 20L);
+    curl_download(entry.preview_url, output, 6L);
   }
   return output;
 }

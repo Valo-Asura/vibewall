@@ -53,6 +53,8 @@ command-line workflow.
   last-used restore state.
 - Image thumbnails through libvips and video thumbnails through ffmpeg.
 - Wallhaven paginated search/cache/download/apply.
+- Wallhaven API and preview downloads run on a background worker, so WEB
+  filtering and loading more pages do not block the Wayland picker event loop.
 - Wallhaven card click selects only; `DOWNLOAD`/`D` saves the remote image, and `APPLY`/`Enter` downloads then applies it.
 - Image backend: `noctalia msg wallpaper-set`.
 - Video backend: `mpvpaper`.
@@ -185,6 +187,9 @@ Notes:
 - The picker is short-lived. Its ready-state RSS is higher because preview
   thumbnails are decoded into OpenGL textures, then released when the picker
   closes.
+- The WEB view shows the newest 120 cached remote previews at once and keeps
+  loading pages asynchronously. While a page is loading, additional WEB filter
+  actions report `WEB STILL LOADING` instead of launching overlapping requests.
 - Video wallpapers are intentionally external: `mpvpaper` used about 98 MiB RSS
   and measurable CPU with the current active video, while `hyprpaper` was not
   running.

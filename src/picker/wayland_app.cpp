@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <poll.h>
 #include <stdexcept>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -137,6 +138,7 @@ void WaylandApp::setup_egl() {
 void WaylandApp::load_wallpapers() {
   if (wallhaven_mode_) {
     wallpapers_.clear();
+    int count = 0;
     for (const auto &entry : db_.cached_wallhaven()) {
       if (entry.thumb_path.empty() || !std::filesystem::exists(entry.thumb_path)) {
         continue;
@@ -150,6 +152,9 @@ void WaylandApp::load_wallpapers() {
       item.height = entry.height;
       item.added_at = entry.cached_at;
       wallpapers_.push_back(std::move(item));
+      if (++count >= 120) {
+        break;
+      }
     }
     if (selected_ >= static_cast<int>(wallpapers_.size())) {
       selected_ = std::max(0, static_cast<int>(wallpapers_.size()) - 1);
@@ -299,63 +304,120 @@ void WaylandApp::load_wallhaven() {
     redraw();
     return;
   }
-  const std::string search = query_.empty() ? config_.wallhaven_default_query : query_;
-  const std::string purity = wallhaven_sfw_ ? "100" : "110";
-  try {
-    cache_wallhaven_search(db_, config_, search, wallhaven_page_, wallhaven_sort_, purity);
-    wallhaven_mode_ = true;
-    type_filter_.reset();
-    color_filter_.reset();
-    mode_ = DisplayMode::Grid;
-    selected_ = 0;
-    scroll_offset_ = 0;
-    status_ = "WALLHAVEN " + search.substr(0, 28);
-  } catch (const std::exception &err) {
-    status_ = "WALLHAVEN ERROR";
-    std::cerr << "wallhaven failed: " << err.what() << '\n';
-  }
-  redraw();
+  start_wallhaven_load(1, true, "LOADING WEB...");
 }
 
 void WaylandApp::load_wallhaven_next_page() {
   if (!config_.enable_wallhaven || !wallhaven_mode_) {
     return;
   }
-  const std::string search = query_.empty() ? config_.wallhaven_default_query : query_;
-  const std::string purity = wallhaven_sfw_ ? "100" : "110";
-  const int prev_size = static_cast<int>(db_.cached_wallhaven().size());
-  status_ = "LOADING MORE...";
-  redraw();
-  try {
-    cache_wallhaven_search(db_, config_, search, wallhaven_page_ + 1, wallhaven_sort_, purity);
-    const int new_size = static_cast<int>(db_.cached_wallhaven().size());
-    if (new_size > prev_size) {
-      ++wallhaven_page_;
-      status_ = "PAGE " + std::to_string(wallhaven_page_);
-    } else {
-      status_ = "NO MORE RESULTS";
-    }
-  } catch (const std::exception &err) {
-    status_ = "LOAD ERROR";
-    std::cerr << "wallhaven next page failed: " << err.what() << '\n';
-  }
-  redraw();
+  start_wallhaven_load(wallhaven_page_ + 1, false,
+                       "LOADING PAGE " + std::to_string(wallhaven_page_ + 1) + "...");
 }
 
 void WaylandApp::set_wallhaven_sort(const std::string &sort) {
   wallhaven_sort_ = sort;
   wallhaven_page_ = 1;
+  start_wallhaven_load(1, true, "LOADING " + sort + "...");
+}
+
+void WaylandApp::start_wallhaven_load(int page, bool reset_view, std::string loading_status) {
+  if (!config_.enable_wallhaven) {
+    status_ = "WALLHAVEN DISABLED";
+    redraw();
+    return;
+  }
+  if (wallhaven_loading_) {
+    status_ = "WEB STILL LOADING";
+    redraw();
+    return;
+  }
+  if (wallhaven_worker_.joinable()) {
+    wallhaven_worker_.join();
+  }
+
+  wallhaven_mode_ = true;
+  type_filter_.reset();
+  color_filter_.reset();
+  mode_ = DisplayMode::Grid;
+  if (reset_view) {
+    selected_ = 0;
+    scroll_offset_ = 0;
+  }
+
   const std::string search = query_.empty() ? config_.wallhaven_default_query : query_;
   const std::string purity = wallhaven_sfw_ ? "100" : "110";
-  status_ = "LOADING " + sort + "...";
-  redraw();
-  try {
-    cache_wallhaven_search(db_, config_, search, 1, wallhaven_sort_, purity);
-    status_ = sort + " LOADED";
-  } catch (const std::exception &err) {
-    status_ = "WALLHAVEN ERROR";
-    std::cerr << "wallhaven sort failed: " << err.what() << '\n';
+  const AppConfig config = config_;
+  const std::string sort = wallhaven_sort_;
+  const int target_page = std::max(1, page);
+
+  {
+    std::lock_guard lock(wallhaven_mutex_);
+    wallhaven_pending_success_ = false;
+    wallhaven_pending_page_ = target_page;
+    wallhaven_pending_status_.clear();
   }
+  wallhaven_done_ = false;
+  wallhaven_loading_ = true;
+  status_ = std::move(loading_status);
+  redraw();
+
+  wallhaven_worker_ = std::thread([this, config, search, target_page, sort, purity]() {
+    bool success = false;
+    int finished_page = target_page;
+    std::string message;
+    try {
+      Database worker_db(config.db_path);
+      worker_db.migrate();
+      const int before = static_cast<int>(worker_db.cached_wallhaven().size());
+      cache_wallhaven_search(worker_db, config, search, target_page, sort, purity);
+      const int after = static_cast<int>(worker_db.cached_wallhaven().size());
+      success = true;
+      if (target_page > 1 && after <= before) {
+        finished_page = std::max(1, target_page - 1);
+        message = "NO MORE RESULTS";
+      } else {
+        message = "WEB PAGE " + std::to_string(target_page) + " READY";
+      }
+    } catch (const std::exception &err) {
+      message = "WALLHAVEN ERROR";
+      std::cerr << "wallhaven worker failed: " << err.what() << '\n';
+    }
+
+    {
+      std::lock_guard lock(wallhaven_mutex_);
+      wallhaven_pending_success_ = success;
+      wallhaven_pending_page_ = finished_page;
+      wallhaven_pending_status_ = std::move(message);
+    }
+    wallhaven_loading_ = false;
+    wallhaven_done_ = true;
+  });
+}
+
+void WaylandApp::finish_wallhaven_load_if_ready() {
+  if (!wallhaven_done_) {
+    return;
+  }
+  if (wallhaven_worker_.joinable()) {
+    wallhaven_worker_.join();
+  }
+
+  bool success = false;
+  int page = wallhaven_page_;
+  std::string status;
+  {
+    std::lock_guard lock(wallhaven_mutex_);
+    success = wallhaven_pending_success_;
+    page = wallhaven_pending_page_;
+    status = wallhaven_pending_status_;
+  }
+
+  if (success) {
+    wallhaven_page_ = page;
+  }
+  status_ = status.empty() ? (success ? "WALLHAVEN READY" : "WALLHAVEN ERROR") : status;
+  wallhaven_done_ = false;
   redraw();
 }
 
@@ -514,12 +576,42 @@ int WaylandApp::run() {
     redraw();
   }
   mark_benchmark_ready();
-  while (running_ && wl_display_dispatch(display_) != -1) {
+  const int fd = wl_display_get_fd(display_);
+  while (running_) {
+    finish_wallhaven_load_if_ready();
+    while (wl_display_prepare_read(display_) != 0) {
+      if (wl_display_dispatch_pending(display_) == -1) {
+        running_ = false;
+        break;
+      }
+      finish_wallhaven_load_if_ready();
+    }
+    if (!running_) {
+      break;
+    }
+
+    wl_display_flush(display_);
+    pollfd pfd = {.fd = fd, .events = POLLIN, .revents = 0};
+    const int timeout_ms = wallhaven_loading_ ? 120 : 250;
+    const int rc = poll(&pfd, 1, timeout_ms);
+    if (rc > 0 && (pfd.revents & POLLIN) != 0) {
+      wl_display_read_events(display_);
+      if (wl_display_dispatch_pending(display_) == -1) {
+        running_ = false;
+      }
+    } else {
+      wl_display_cancel_read(display_);
+    }
   }
+  finish_wallhaven_load_if_ready();
   return 0;
 }
 
 void WaylandApp::cleanup() {
+  running_ = false;
+  if (wallhaven_worker_.joinable()) {
+    wallhaven_worker_.join();
+  }
   if (egl_display_ != EGL_NO_DISPLAY) {
     eglMakeCurrent(egl_display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (egl_surface_ != EGL_NO_SURFACE) {
