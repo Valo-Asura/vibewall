@@ -51,6 +51,13 @@ enum class PickerAction {
   ColorWhite,
   ColorGray,
   ColorBlack,
+  // Wallhaven sort/filter tabs
+  WallhavenTrend,
+  WallhavenNew,
+  WallhavenTop,
+  WallhavenPopular,
+  WallhavenSFW,
+  WallhavenNextPage,
 };
 
 struct ActionRegion {
@@ -79,11 +86,12 @@ class Renderer {
 public:
   void init();
   void resize(int width, int height);
-  void render(const std::vector<Wallpaper> &wallpapers, int selected, DisplayMode mode,
+  void render(const std::vector<Wallpaper> &wallpapers, int selected, int scroll_offset, DisplayMode mode,
               const std::string &query, bool wallhaven_mode, const std::string &status,
               const std::optional<WallpaperType> &type_filter,
               const std::optional<ColorGroup> &color_filter, bool favorites_only,
-              const std::string &background_path);
+              const std::string &background_path,
+              const std::string &sort = "toplist", bool sfw = true);
   int hit_test(float x, float y) const;
   int favorite_hit_test(float x, float y) const;
   PickerAction action_hit_test(float x, float y) const;
@@ -139,12 +147,13 @@ private:
   void render_toolbar(const std::vector<Wallpaper> &wallpapers, DisplayMode mode,
                       const std::string &query, bool wallhaven_mode, const std::string &status,
                       const std::optional<WallpaperType> &type_filter,
-                      const std::optional<ColorGroup> &color_filter, bool favorites_only);
+                      const std::optional<ColorGroup> &color_filter, bool favorites_only,
+                      const std::string &sort, bool sfw);
   void add_action_region(PickerAction action, float x, float y, float w, float h);
-  void render_grid(const std::vector<Wallpaper> &wallpapers, int selected);
+  void render_grid(const std::vector<Wallpaper> &wallpapers, int selected, int scroll_offset);
   void render_slice(const std::vector<Wallpaper> &wallpapers, int selected);
-  void render_hex(const std::vector<Wallpaper> &wallpapers, int selected);
-  void render_mosaic(const std::vector<Wallpaper> &wallpapers, int selected);
+  void render_hex(const std::vector<Wallpaper> &wallpapers, int selected, int scroll_offset);
+  void render_mosaic(const std::vector<Wallpaper> &wallpapers, int selected, int scroll_offset);
 };
 
 } // namespace vibewall::picker

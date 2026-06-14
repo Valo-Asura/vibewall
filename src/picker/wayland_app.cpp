@@ -186,8 +186,9 @@ void WaylandApp::refresh_background_path() {
 void WaylandApp::redraw() {
   refresh_background_path();
   load_wallpapers();
-  renderer_.render(wallpapers_, selected_, mode_, query_, wallhaven_mode_, status_, type_filter_,
-                   color_filter_, favorites_only_, background_path_);
+  renderer_.render(wallpapers_, selected_, scroll_offset_, mode_, query_, wallhaven_mode_, status_, type_filter_,
+                   color_filter_, favorites_only_, background_path_,
+                   wallhaven_sort_, wallhaven_sfw_);
   eglSwapBuffers(egl_display_, egl_surface_);
 }
 
@@ -293,22 +294,67 @@ void WaylandApp::load_wallhaven() {
     color_filter_.reset();
     mode_ = DisplayMode::Grid;
     selected_ = 0;
+    scroll_offset_ = 0;
     status_ = "WALLHAVEN CACHE";
     redraw();
     return;
   }
   const std::string search = query_.empty() ? config_.wallhaven_default_query : query_;
+  const std::string purity = wallhaven_sfw_ ? "100" : "110";
   try {
-    cache_wallhaven_search(db_, config_, search, wallhaven_page_);
+    cache_wallhaven_search(db_, config_, search, wallhaven_page_, wallhaven_sort_, purity);
     wallhaven_mode_ = true;
     type_filter_.reset();
     color_filter_.reset();
     mode_ = DisplayMode::Grid;
     selected_ = 0;
+    scroll_offset_ = 0;
     status_ = "WALLHAVEN " + search.substr(0, 28);
   } catch (const std::exception &err) {
     status_ = "WALLHAVEN ERROR";
     std::cerr << "wallhaven failed: " << err.what() << '\n';
+  }
+  redraw();
+}
+
+void WaylandApp::load_wallhaven_next_page() {
+  if (!config_.enable_wallhaven || !wallhaven_mode_) {
+    return;
+  }
+  const std::string search = query_.empty() ? config_.wallhaven_default_query : query_;
+  const std::string purity = wallhaven_sfw_ ? "100" : "110";
+  const int prev_size = static_cast<int>(db_.cached_wallhaven().size());
+  status_ = "LOADING MORE...";
+  redraw();
+  try {
+    cache_wallhaven_search(db_, config_, search, wallhaven_page_ + 1, wallhaven_sort_, purity);
+    const int new_size = static_cast<int>(db_.cached_wallhaven().size());
+    if (new_size > prev_size) {
+      ++wallhaven_page_;
+      status_ = "PAGE " + std::to_string(wallhaven_page_);
+    } else {
+      status_ = "NO MORE RESULTS";
+    }
+  } catch (const std::exception &err) {
+    status_ = "LOAD ERROR";
+    std::cerr << "wallhaven next page failed: " << err.what() << '\n';
+  }
+  redraw();
+}
+
+void WaylandApp::set_wallhaven_sort(const std::string &sort) {
+  wallhaven_sort_ = sort;
+  wallhaven_page_ = 1;
+  const std::string search = query_.empty() ? config_.wallhaven_default_query : query_;
+  const std::string purity = wallhaven_sfw_ ? "100" : "110";
+  status_ = "LOADING " + sort + "...";
+  redraw();
+  try {
+    cache_wallhaven_search(db_, config_, search, 1, wallhaven_sort_, purity);
+    status_ = sort + " LOADED";
+  } catch (const std::exception &err) {
+    status_ = "WALLHAVEN ERROR";
+    std::cerr << "wallhaven sort failed: " << err.what() << '\n';
   }
   redraw();
 }
@@ -320,6 +366,7 @@ void WaylandApp::show_local() {
   }
   status_ = "LOCAL WALLPAPERS";
   selected_ = 0;
+  scroll_offset_ = 0;
   redraw();
 }
 
@@ -345,7 +392,63 @@ void WaylandApp::move_selection(int delta) {
   if (selected_ >= static_cast<int>(wallpapers_.size())) {
     selected_ = static_cast<int>(wallpapers_.size()) - 1;
   }
+
+  // Adjust scroll_offset_ to make sure selected_ is in the viewport
+  const int cols = scroll_step();
+  if (cols > 0) {
+    const int selected_row = selected_ / cols;
+    const int start_row = scroll_offset_ / cols;
+    const int visible = visible_rows_count();
+    if (selected_row < start_row) {
+      scroll_offset_ = selected_row * cols;
+    } else if (selected_row >= start_row + visible) {
+      scroll_offset_ = (selected_row - visible + 1) * cols;
+    }
+  }
   redraw();
+}
+
+void WaylandApp::scroll_viewport(int delta) {
+  if (wallpapers_.empty()) {
+    return;
+  }
+  const int cols = scroll_step();
+  if (cols <= 0) {
+    return;
+  }
+  scroll_offset_ += delta;
+  // Align to rows
+  scroll_offset_ = (scroll_offset_ / cols) * cols;
+  if (scroll_offset_ < 0) {
+    scroll_offset_ = 0;
+  }
+  const int max_scroll = std::max(0, (static_cast<int>(wallpapers_.size()) - 1) / cols * cols);
+  if (scroll_offset_ > max_scroll) {
+    scroll_offset_ = max_scroll;
+    if (wallhaven_mode_ && delta > 0) {
+      load_wallhaven_next_page();
+      return;
+    }
+  }
+  redraw();
+}
+
+int WaylandApp::visible_rows_count() const {
+  switch (mode_) {
+  case DisplayMode::Grid:
+    return height_ >= 920 ? 4 : 3;
+  case DisplayMode::Mosaic:
+    return 5;
+  case DisplayMode::Hex: {
+    const float r = std::clamp(static_cast<float>(width_) * 0.052F, 70.0F, 108.0F);
+    const float step_y = r * 1.34F;
+    const float content_h = static_cast<float>(height_) - 180.0F;
+    return std::clamp(static_cast<int>((content_h + step_y * 0.5F) / step_y), 2, 4);
+  }
+  case DisplayMode::Slice:
+    return 1;
+  }
+  return 1;
 }
 
 int WaylandApp::scroll_step() const {
@@ -370,6 +473,7 @@ void WaylandApp::set_type_filter(std::optional<WallpaperType> type) {
   wallhaven_mode_ = false;
   type_filter_ = type;
   selected_ = 0;
+  scroll_offset_ = 0;
   redraw();
 }
 
@@ -380,12 +484,14 @@ void WaylandApp::set_color_filter(std::optional<ColorGroup> color) {
   }
   color_filter_ = color;
   selected_ = 0;
+  scroll_offset_ = 0;
   redraw();
 }
 
 void WaylandApp::set_query(std::string query) {
   query_ = std::move(query);
   selected_ = 0;
+  scroll_offset_ = 0;
   redraw();
 }
 
@@ -574,6 +680,7 @@ void WaylandApp::pointer_button(void *data, wl_pointer *, uint32_t, uint32_t, ui
     case PickerAction::FavoriteFilter:
       app->favorites_only_ = !app->favorites_only_;
       app->selected_ = 0;
+      app->scroll_offset_ = 0;
       app->redraw();
       return;
     case PickerAction::TypeAll:
@@ -630,6 +737,26 @@ void WaylandApp::pointer_button(void *data, wl_pointer *, uint32_t, uint32_t, ui
     case PickerAction::ColorBlack:
       app->set_color_filter(ColorGroup::Black);
       return;
+    case PickerAction::WallhavenTrend:
+      app->set_wallhaven_sort("toplist");
+      return;
+    case PickerAction::WallhavenNew:
+      app->set_wallhaven_sort("date_added");
+      return;
+    case PickerAction::WallhavenTop:
+      app->set_wallhaven_sort("views");
+      return;
+    case PickerAction::WallhavenPopular:
+      app->set_wallhaven_sort("hot");
+      return;
+    case PickerAction::WallhavenSFW:
+      app->wallhaven_sfw_ = !app->wallhaven_sfw_;
+      app->wallhaven_page_ = 1;
+      app->load_wallhaven();
+      return;
+    case PickerAction::WallhavenNextPage:
+      app->load_wallhaven_next_page();
+      return;
     case PickerAction::None:
       break;
     }
@@ -673,7 +800,7 @@ void WaylandApp::pointer_axis(void *data, wl_pointer *, uint32_t, uint32_t axis,
     app->scroll_accumulator_ += tick;
   }
   if (steps != 0) {
-    app->move_selection(steps * app->scroll_step());
+    app->scroll_viewport(steps * app->scroll_step());
   }
 }
 void WaylandApp::pointer_frame(void *, wl_pointer *) {}

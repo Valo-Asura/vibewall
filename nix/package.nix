@@ -65,7 +65,7 @@ stdenv.mkDerivation {
   postInstall = ''
     for bin in vibewall vibewall-daemon vibewall-picker; do
       wrapProgram "$out/bin/$bin" \
-        --prefix PATH : "$out/bin:${
+        --prefix PATH : "/run/current-system/sw/bin:/etc/profiles/per-user/asura/bin:$out/bin:${
           lib.makeBinPath [
             ffmpeg
             matugen

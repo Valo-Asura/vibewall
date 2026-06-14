@@ -78,14 +78,17 @@ private:
   bool search_active_ = false;
   bool wallhaven_mode_ = false;
   bool favorites_only_ = false;
+  bool wallhaven_sfw_ = true;
   int wallhaven_page_ = 1;
+  std::string wallhaven_sort_ = "toplist"; // toplist | date_added | views | hot
   std::optional<WallpaperType> type_filter_;
   std::optional<ColorGroup> color_filter_;
   std::string query_;
   std::string status_;
   std::string background_path_;
   std::vector<Wallpaper> wallpapers_;
-  int selected_ = 0;
+  int selected_ = 0;       // which item is highlighted/will-be-applied on click
+  int scroll_offset_ = 0;  // viewport anchor: which item is in the "center" row
 
   wl_display *display_ = nullptr;
   wl_registry *registry_ = nullptr;
@@ -121,10 +124,14 @@ private:
   void toggle_favorite();
   void toggle_favorite_at(int index);
   void load_wallhaven();
+  void load_wallhaven_next_page();
+  void set_wallhaven_sort(const std::string &sort);
   void show_local();
   void apply_random();
   void move_selection(int delta);
+  void scroll_viewport(int delta);
   int scroll_step() const;
+  int visible_rows_count() const;
   void set_type_filter(std::optional<WallpaperType> type);
   void set_color_filter(std::optional<ColorGroup> color);
   void set_query(std::string query);

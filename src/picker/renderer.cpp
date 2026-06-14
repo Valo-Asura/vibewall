@@ -683,7 +683,8 @@ void Renderer::render_toolbar(const std::vector<Wallpaper> &wallpapers, DisplayM
                               const std::string &status,
                               const std::optional<WallpaperType> &type_filter,
                               const std::optional<ColorGroup> &color_filter,
-                              bool favorites_only) {
+                              bool favorites_only,
+                              const std::string &sort, bool sfw) {
   const float panel_w =
       std::min(static_cast<float>(width_) - 60.0F, wallhaven_mode ? 1280.0F : 1180.0F);
   const float panel_h = wallhaven_mode ? 106.0F : 90.0F;
@@ -757,16 +758,17 @@ void Renderer::render_toolbar(const std::vector<Wallpaper> &wallpapers, DisplayM
   if (wallhaven_mode) {
     float wx = x + panel_w - 464.0F;
     const float wy = y + 72.0F;
-    const auto tab = [&](const std::string &label, bool active) {
-      const float w = draw_chip(wx, wy, label, active, 0.52F, 0.96F, 0.78F);
-      wx += w + 5.0F;
+    const auto tab = [&](const std::string &label, bool active, PickerAction action) {
+      const float tw = draw_chip(wx, wy, label, active, 0.52F, 0.96F, 0.78F);
+      add_action_region(action, wx, wy, tw, 24.0F);
+      wx += tw + 5.0F;
     };
-    tab("TREND", true);
-    tab("NEW", false);
-    tab("TOP", false);
-    tab("POPULAR", false);
-    tab("SFW", true);
-    tab("1080P", false);
+    tab("TREND",   sort == "toplist",    PickerAction::WallhavenTrend);
+    tab("NEW",     sort == "date_added", PickerAction::WallhavenNew);
+    tab("TOP",     sort == "views",      PickerAction::WallhavenTop);
+    tab("POPULAR", sort == "hot",        PickerAction::WallhavenPopular);
+    tab("SFW",     sfw,                 PickerAction::WallhavenSFW);
+    tab("MORE",    false,               PickerAction::WallhavenNextPage);
   }
 }
 
@@ -780,11 +782,12 @@ void Renderer::add_action_region(PickerAction action, float x, float y, float w,
   });
 }
 
-void Renderer::render(const std::vector<Wallpaper> &wallpapers, int selected, DisplayMode mode,
+void Renderer::render(const std::vector<Wallpaper> &wallpapers, int selected, int scroll_offset, DisplayMode mode,
                       const std::string &query, bool wallhaven_mode, const std::string &status,
                       const std::optional<WallpaperType> &type_filter,
                       const std::optional<ColorGroup> &color_filter, bool favorites_only,
-                      const std::string &background_path) {
+                      const std::string &background_path,
+                      const std::string &sort, bool sfw) {
   (void)background_path;
   hit_regions_.clear();
   action_regions_.clear();
@@ -793,7 +796,7 @@ void Renderer::render(const std::vector<Wallpaper> &wallpapers, int selected, Di
   glClearColor(0.0F, 0.0F, 0.0F, 0.0F);
   glClear(GL_COLOR_BUFFER_BIT);
   render_toolbar(wallpapers, mode, query, wallhaven_mode, status, type_filter, color_filter,
-                 favorites_only);
+                 favorites_only, sort, sfw);
 
   if (wallpapers.empty()) {
     draw_text(content_x_ + content_w_ * 0.18F, content_y_ + content_h_ * 0.42F,
@@ -807,26 +810,25 @@ void Renderer::render(const std::vector<Wallpaper> &wallpapers, int selected, Di
     render_slice(wallpapers, selected);
     break;
   case DisplayMode::Grid:
-    render_grid(wallpapers, selected);
+    render_grid(wallpapers, selected, scroll_offset);
     break;
   case DisplayMode::Hex:
-    render_hex(wallpapers, selected);
+    render_hex(wallpapers, selected, scroll_offset);
     break;
   case DisplayMode::Mosaic:
-    render_mosaic(wallpapers, selected);
+    render_mosaic(wallpapers, selected, scroll_offset);
     break;
   }
 }
 
-void Renderer::render_grid(const std::vector<Wallpaper> &wallpapers, int selected) {
+void Renderer::render_grid(const std::vector<Wallpaper> &wallpapers, int selected, int scroll_offset) {
   const float gap = 7.0F;
   const int cols = width_ >= 1500 ? 5 : (width_ >= 1100 ? 4 : 3);
   const int visible_rows = height_ >= 920 ? 4 : 3;
   const float cell_w = std::min(260.0F, (content_w_ - gap * (cols - 1)) / cols);
   const float cell_h = cell_w * 0.56F;
   const float grid_w = cols * cell_w + (cols - 1) * gap;
-  const int selected_row = std::max(0, selected / cols);
-  const int start_row = std::max(0, selected_row - visible_rows / 2);
+  const int start_row = std::max(0, scroll_offset / cols);
   const int start = start_row * cols;
   const int end = std::min<int>(wallpapers.size(), start + visible_rows * cols);
   const float left = content_x_ + (content_w_ - grid_w) * 0.5F;
@@ -914,14 +916,13 @@ void Renderer::render_slice(const std::vector<Wallpaper> &wallpapers, int select
   }
 }
 
-void Renderer::render_hex(const std::vector<Wallpaper> &wallpapers, int selected) {
+void Renderer::render_hex(const std::vector<Wallpaper> &wallpapers, int selected, int scroll_offset) {
   const float r = std::clamp(static_cast<float>(width_) * 0.052F, 70.0F, 108.0F);
   const float step_x = r * 1.55F;
   const float step_y = r * 1.34F;
   const int cols = std::min(7, std::max(3, static_cast<int>((content_w_ - step_x * 0.5F) / step_x)));
-  const int selected_row = std::max(0, selected / cols);
   const int visible_rows = std::clamp(static_cast<int>((content_h_ + step_y * 0.5F) / step_y), 2, 4);
-  const int start_row = std::max(0, selected_row - visible_rows / 2);
+  const int start_row = std::max(0, scroll_offset / cols);
   const int start = start_row * cols;
   const int end = std::min<int>(wallpapers.size(), start + visible_rows * cols);
   const float hex_w = cols * step_x + step_x * 0.5F;
@@ -1006,24 +1007,20 @@ void Renderer::render_hex(const std::vector<Wallpaper> &wallpapers, int selected
   }
 }
 
-void Renderer::render_mosaic(const std::vector<Wallpaper> &wallpapers, int selected) {
+void Renderer::render_mosaic(const std::vector<Wallpaper> &wallpapers, int selected, int scroll_offset) {
   const float gap = 7.0F;
   const int cols = width_ >= 1500 ? 5 : 4;
   const float base_w = std::min(260.0F, (content_w_ - gap * (cols - 1)) / cols);
   const float base_h = base_w * 0.54F;
-  const int selected_row = std::max(0, selected / cols);
-  const int start_row = std::max(0, selected_row - 2);
-  const int start = start_row * cols;
-  const int end = std::min<int>(wallpapers.size(), start + cols * 5);
+  const int start_row = std::max(0, scroll_offset / cols);
+  const float scroll_y = start_row * (base_h + gap);
   const float left = content_x_ + (content_w_ - (cols * base_w + (cols - 1) * gap)) * 0.5F;
   const float top = content_y_ + 8.0F;
   std::vector<float> col_y(static_cast<std::size_t>(cols), top);
 
-  for (int i = start; i < end; ++i) {
-    const int local = i - start;
-    int col = local % cols;
+  for (int i = 0; i < static_cast<int>(wallpapers.size()); ++i) {
     auto min_it = std::min_element(col_y.begin(), col_y.end());
-    col = static_cast<int>(std::distance(col_y.begin(), min_it));
+    int col = static_cast<int>(std::distance(col_y.begin(), min_it));
 
     float w = base_w;
     float h = base_h;
@@ -1040,23 +1037,32 @@ void Renderer::render_mosaic(const std::vector<Wallpaper> &wallpapers, int selec
 
     const float x = left + col * (base_w + gap);
     const float y = col_y[static_cast<std::size_t>(col)];
-    if (y + h > content_y_ + content_h_) {
-      continue;
-    }
-    draw_rect(x - 3, y - 3, w + 6, h + 6, i == selected ? 0.52F : 0.08F,
-              i == selected ? 0.96F : 0.11F, i == selected ? 0.78F : 0.13F,
-              i == selected ? 0.98F : 0.34F);
-    draw_wallpaper_preview(x, y, w, h, wallpapers[i], 1.0F);
-    if (i != selected) {
-      draw_rect(x, y, w, h, 0.0F, 0.0F, 0.0F, 0.04F);
-    }
-    draw_wallpaper_badges(x, y, w, h, wallpapers[i], i == selected, i);
-    hit_regions_.push_back({i, {{x, y}, {x + w, y}, {x + w, y + h}, {x, y + h}}});
+    const float draw_y = y - scroll_y;
 
     col_y[static_cast<std::size_t>(col)] += h + gap;
     if (w > base_w && col + 1 < cols) {
       col_y[static_cast<std::size_t>(col + 1)] = col_y[static_cast<std::size_t>(col)];
     }
+
+    if (draw_y + h < top) {
+      continue;
+    }
+    if (draw_y > content_y_ + content_h_) {
+      continue;
+    }
+
+    draw_rect(x - 3, draw_y - 3, w + 6, h + 6, i == selected ? 0.52F : 0.08F,
+              i == selected ? 0.96F : 0.11F, i == selected ? 0.78F : 0.13F,
+              i == selected ? 0.98F : 0.22F);
+    if (i == selected) {
+      draw_rect(x - 7, draw_y - 7, w + 14, h + 14, 0.52F, 0.96F, 0.78F, 0.16F);
+    }
+    draw_wallpaper_preview(x, draw_y, w, h, wallpapers[i], 1.0F);
+    if (i != selected) {
+      draw_rect(x, draw_y, w, h, 0.0F, 0.0F, 0.0F, 0.04F);
+    }
+    draw_wallpaper_badges(x, draw_y, w, h, wallpapers[i], i == selected, i);
+    hit_regions_.push_back({i, {{x, draw_y}, {x + w, draw_y}, {x + w, draw_y + h}, {x, draw_y + h}}});
   }
 }
 

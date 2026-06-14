@@ -153,11 +153,14 @@ std::vector<WallhavenEntry> parse_wallhaven_response(const std::string &json_tex
 }
 
 std::vector<WallhavenEntry> wallhaven_search(const AppConfig &config, const std::string &query,
-                                             int page) {
+                                             int page, const std::string &sorting,
+                                             const std::string &purity) {
   const int safe_page = page <= 0 ? 1 : page;
   const std::string url = "https://wallhaven.cc/api/v1/search?q=" + url_escape(query) +
                           "&page=" + std::to_string(safe_page) +
-                          "&categories=111&purity=100&sorting=toplist&topRange=1M";
+                          "&categories=111&purity=" + purity +
+                          "&sorting=" + sorting +
+                          (sorting == "toplist" ? "&topRange=1M" : "");
   return parse_wallhaven_response(curl_get(url, config.wallhaven_api_key));
 }
 
@@ -194,8 +197,8 @@ std::filesystem::path wallhaven_download_preview(const AppConfig &config,
 }
 
 void cache_wallhaven_search(Database &db, const AppConfig &config, const std::string &query,
-                            int page) {
-  for (auto entry : wallhaven_search(config, query, page)) {
+                            int page, const std::string &sorting, const std::string &purity) {
+  for (auto entry : wallhaven_search(config, query, page, sorting, purity)) {
     try {
       entry.thumb_path = wallhaven_download_preview(config, entry).string();
     } catch (const std::exception &) {
