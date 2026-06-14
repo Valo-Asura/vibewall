@@ -64,10 +64,14 @@ void curl_download(const std::string &url, const std::filesystem::path &output, 
     std::filesystem::remove(output, ec);
     throw std::runtime_error("download HTTP error: " + std::to_string(status));
   }
-  if (!content_type_value.empty() && content_type_value.rfind("image/", 0) != 0) {
+  const bool supported_media =
+      content_type_value.empty() || content_type_value.rfind("image/", 0) == 0 ||
+      content_type_value.rfind("video/", 0) == 0 ||
+      content_type_value.rfind("application/octet-stream", 0) == 0;
+  if (!supported_media) {
     std::error_code ec;
     std::filesystem::remove(output, ec);
-    throw std::runtime_error("download returned non-image content");
+    throw std::runtime_error("download returned unsupported content: " + content_type_value);
   }
 }
 

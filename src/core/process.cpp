@@ -68,6 +68,13 @@ ProcessResult spawn_detached(const std::vector<std::string> &argv) {
     return {127, std::strerror(errno)};
   }
   if (pid == 0) {
+    const pid_t grandchild = fork();
+    if (grandchild < 0) {
+      _exit(127);
+    }
+    if (grandchild > 0) {
+      _exit(0);
+    }
     setsid();
     const int null_fd = open("/dev/null", O_RDWR);
     if (null_fd >= 0) {
@@ -82,7 +89,18 @@ ProcessResult spawn_detached(const std::vector<std::string> &argv) {
     execvp(ptrs[0], ptrs.data());
     _exit(127);
   }
-  return {0, {}};
+
+  int status = 0;
+  if (waitpid(pid, &status, 0) < 0) {
+    return {127, std::strerror(errno)};
+  }
+  if (WIFEXITED(status)) {
+    return {WEXITSTATUS(status), {}};
+  }
+  if (WIFSIGNALED(status)) {
+    return {128 + WTERMSIG(status), "terminated by signal"};
+  }
+  return {127, "launcher did not exit normally"};
 }
 
 std::vector<std::string> substitute_args(const std::vector<std::string> &args,

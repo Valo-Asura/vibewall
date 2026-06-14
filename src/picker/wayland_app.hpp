@@ -82,6 +82,7 @@ private:
   bool wallhaven_mode_ = false;
   bool favorites_only_ = false;
   bool wallhaven_sfw_ = true;
+  bool data_dirty_ = true;
   std::atomic<bool> wallhaven_loading_ = false;
   std::atomic<bool> wallhaven_done_ = false;
   int wallhaven_page_ = 1;
@@ -127,6 +128,7 @@ private:
   void setup_egl();
   void load_wallpapers();
   void refresh_background_path();
+  void mark_data_dirty();
   void redraw();
   void apply_selected();
   std::optional<WallhavenEntry> selected_wallhaven_entry() const;

@@ -3,6 +3,8 @@
 #include "core/model.hpp"
 
 #include <GLES2/gl2.h>
+#include <cstddef>
+#include <list>
 #include <map>
 #include <optional>
 #include <string>
@@ -84,7 +86,15 @@ struct TextureInfo {
 
 class Renderer {
 public:
+  Renderer() = default;
+  ~Renderer();
+  Renderer(const Renderer &) = delete;
+  Renderer &operator=(const Renderer &) = delete;
+  Renderer(Renderer &&) = delete;
+  Renderer &operator=(Renderer &&) = delete;
+
   void init();
+  void shutdown();
   void resize(int width, int height);
   void render(const std::vector<Wallpaper> &wallpapers, int selected, int scroll_offset, DisplayMode mode,
               const std::string &query, bool wallhaven_mode, const std::string &status,
@@ -107,6 +117,7 @@ private:
   GLint use_texture_loc_ = -1;
   GLint texture_loc_ = -1;
   std::map<std::string, TextureInfo> textures_;
+  std::list<std::string> texture_lru_;
   std::vector<HitRegion> hit_regions_;
   std::vector<ActionRegion> action_regions_;
   std::vector<FavoriteRegion> favorite_regions_;
@@ -121,6 +132,9 @@ private:
 
   TextureInfo texture_for(const Wallpaper &wallpaper);
   TextureInfo texture_for_path(const std::string &path);
+  void clear_textures();
+  void touch_texture(const std::string &path);
+  void evict_textures_if_needed();
   void update_stage(DisplayMode mode);
   void draw_background(const std::string &background_path);
   void draw_rect(float x, float y, float w, float h, float r, float g, float b, float a);

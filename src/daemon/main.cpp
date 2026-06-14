@@ -4,13 +4,15 @@
 #include "core/process.hpp"
 #include "core/wallpaper_apply.hpp"
 
-#include <csignal>
 #include <cerrno>
+#include <csignal>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -89,8 +91,10 @@ void close_picker() {
     }
     picker_pid = -1;
   }
-  run_process({"pkill", "-x", "vibewall-picker"});
-  run_process({"pkill", "-f", "vibewall-picker"});
+  const char *user = std::getenv("USER");
+  if (user != nullptr && user[0] != '\0') {
+    run_process({"pkill", "-u", user, "-x", "vibewall-picker"});
+  }
   reap_picker();
 }
 
@@ -166,6 +170,10 @@ int main() {
         }
         throw std::runtime_error("accept failed");
       }
+      timeval timeout{};
+      timeout.tv_sec = 1;
+      (void)setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+      (void)setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
       char buffer[2048];
       ssize_t n = read(client, buffer, sizeof(buffer) - 1);
       if (n > 0) {

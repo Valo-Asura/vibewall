@@ -8,6 +8,7 @@
 
 #include <GLES2/gl2.h>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
@@ -188,9 +189,16 @@ void WaylandApp::refresh_background_path() {
   background_path_ = last;
 }
 
+void WaylandApp::mark_data_dirty() {
+  data_dirty_ = true;
+}
+
 void WaylandApp::redraw() {
-  refresh_background_path();
-  load_wallpapers();
+  if (data_dirty_) {
+    refresh_background_path();
+    load_wallpapers();
+    data_dirty_ = false;
+  }
   renderer_.render(wallpapers_, selected_, scroll_offset_, mode_, query_, wallhaven_mode_, status_, type_filter_,
                    color_filter_, favorites_only_, background_path_,
                    wallhaven_sort_, wallhaven_sfw_);
@@ -212,6 +220,10 @@ void WaylandApp::apply_selected() {
     redraw();
   } else if (config_.close_on_selection) {
     running_ = false;
+  } else {
+    status_ = "APPLIED";
+    mark_data_dirty();
+    redraw();
   }
 }
 
@@ -284,6 +296,9 @@ void WaylandApp::toggle_favorite_at(int index) {
   db_.set_favorite(wallpapers_[selected_].path, next);
   wallpapers_[selected_].favorite = next;
   status_ = next ? "FAVORITE SAVED" : "FAVORITE REMOVED";
+  if (favorites_only_) {
+    mark_data_dirty();
+  }
   redraw();
 }
 
@@ -301,6 +316,7 @@ void WaylandApp::load_wallhaven() {
     selected_ = 0;
     scroll_offset_ = 0;
     status_ = "WALLHAVEN CACHE";
+    mark_data_dirty();
     redraw();
     return;
   }
@@ -327,7 +343,7 @@ void WaylandApp::start_wallhaven_load(int page, bool reset_view, std::string loa
     redraw();
     return;
   }
-  if (wallhaven_loading_) {
+  if (wallhaven_loading_.load(std::memory_order_acquire)) {
     status_ = "WEB STILL LOADING";
     redraw();
     return;
@@ -357,9 +373,10 @@ void WaylandApp::start_wallhaven_load(int page, bool reset_view, std::string loa
     wallhaven_pending_page_ = target_page;
     wallhaven_pending_status_.clear();
   }
-  wallhaven_done_ = false;
-  wallhaven_loading_ = true;
+  wallhaven_done_.store(false, std::memory_order_release);
+  wallhaven_loading_.store(true, std::memory_order_release);
   status_ = std::move(loading_status);
+  mark_data_dirty();
   redraw();
 
   wallhaven_worker_ = std::thread([this, config, search, target_page, sort, purity]() {
@@ -389,14 +406,14 @@ void WaylandApp::start_wallhaven_load(int page, bool reset_view, std::string loa
       wallhaven_pending_success_ = success;
       wallhaven_pending_page_ = finished_page;
       wallhaven_pending_status_ = std::move(message);
+      wallhaven_loading_.store(false, std::memory_order_release);
+      wallhaven_done_.store(true, std::memory_order_release);
     }
-    wallhaven_loading_ = false;
-    wallhaven_done_ = true;
   });
 }
 
 void WaylandApp::finish_wallhaven_load_if_ready() {
-  if (!wallhaven_done_) {
+  if (!wallhaven_done_.load(std::memory_order_acquire)) {
     return;
   }
   if (wallhaven_worker_.joinable()) {
@@ -417,7 +434,8 @@ void WaylandApp::finish_wallhaven_load_if_ready() {
     wallhaven_page_ = page;
   }
   status_ = status.empty() ? (success ? "WALLHAVEN READY" : "WALLHAVEN ERROR") : status;
-  wallhaven_done_ = false;
+  wallhaven_done_.store(false, std::memory_order_release);
+  mark_data_dirty();
   redraw();
 }
 
@@ -429,6 +447,7 @@ void WaylandApp::show_local() {
   status_ = "LOCAL WALLPAPERS";
   selected_ = 0;
   scroll_offset_ = 0;
+  mark_data_dirty();
   redraw();
 }
 
@@ -440,6 +459,10 @@ void WaylandApp::apply_random() {
     redraw();
   } else if (config_.close_on_selection) {
     running_ = false;
+  } else {
+    status_ = "RANDOM APPLIED";
+    mark_data_dirty();
+    redraw();
   }
 }
 
@@ -453,6 +476,10 @@ void WaylandApp::move_selection(int delta) {
   }
   if (selected_ >= static_cast<int>(wallpapers_.size())) {
     selected_ = static_cast<int>(wallpapers_.size()) - 1;
+    if (wallhaven_mode_ && delta > 0) {
+      load_wallhaven_next_page();
+      return;
+    }
   }
 
   // Adjust scroll_offset_ to make sure selected_ is in the viewport
@@ -536,6 +563,7 @@ void WaylandApp::set_type_filter(std::optional<WallpaperType> type) {
   type_filter_ = type;
   selected_ = 0;
   scroll_offset_ = 0;
+  mark_data_dirty();
   redraw();
 }
 
@@ -547,6 +575,7 @@ void WaylandApp::set_color_filter(std::optional<ColorGroup> color) {
   color_filter_ = color;
   selected_ = 0;
   scroll_offset_ = 0;
+  mark_data_dirty();
   redraw();
 }
 
@@ -554,6 +583,7 @@ void WaylandApp::set_query(std::string query) {
   query_ = std::move(query);
   selected_ = 0;
   scroll_offset_ = 0;
+  mark_data_dirty();
   redraw();
 }
 
@@ -569,7 +599,6 @@ void WaylandApp::mark_benchmark_ready() const {
 int WaylandApp::run() {
   connect();
   setup_egl();
-  load_wallpapers();
   if (start_wallhaven_) {
     load_wallhaven();
   } else {
@@ -592,7 +621,7 @@ int WaylandApp::run() {
 
     wl_display_flush(display_);
     pollfd pfd = {.fd = fd, .events = POLLIN, .revents = 0};
-    const int timeout_ms = wallhaven_loading_ ? 120 : 250;
+    const int timeout_ms = wallhaven_loading_.load(std::memory_order_acquire) ? 120 : 250;
     const int rc = poll(&pfd, 1, timeout_ms);
     if (rc > 0 && (pfd.revents & POLLIN) != 0) {
       wl_display_read_events(display_);
@@ -612,6 +641,7 @@ void WaylandApp::cleanup() {
   if (wallhaven_worker_.joinable()) {
     wallhaven_worker_.join();
   }
+  renderer_.shutdown();
   if (egl_display_ != EGL_NO_DISPLAY) {
     eglMakeCurrent(egl_display_, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (egl_surface_ != EGL_NO_SURFACE) {
@@ -773,6 +803,7 @@ void WaylandApp::pointer_button(void *data, wl_pointer *, uint32_t, uint32_t, ui
       app->favorites_only_ = !app->favorites_only_;
       app->selected_ = 0;
       app->scroll_offset_ = 0;
+      app->mark_data_dirty();
       app->redraw();
       return;
     case PickerAction::TypeAll:
@@ -844,7 +875,8 @@ void WaylandApp::pointer_button(void *data, wl_pointer *, uint32_t, uint32_t, ui
     case PickerAction::WallhavenSFW:
       app->wallhaven_sfw_ = !app->wallhaven_sfw_;
       app->wallhaven_page_ = 1;
-      app->load_wallhaven();
+      app->start_wallhaven_load(1, true,
+                                app->wallhaven_sfw_ ? "LOADING SFW..." : "LOADING NSFW...");
       return;
     case PickerAction::WallhavenNextPage:
       app->load_wallhaven_next_page();
@@ -914,11 +946,41 @@ void WaylandApp::keyboard_keymap(void *data, wl_keyboard *, uint32_t format, int
     close(fd);
     return;
   }
+  if (app->xkb_state_ != nullptr) {
+    xkb_state_unref(app->xkb_state_);
+    app->xkb_state_ = nullptr;
+  }
+  if (app->xkb_keymap_ != nullptr) {
+    xkb_keymap_unref(app->xkb_keymap_);
+    app->xkb_keymap_ = nullptr;
+  }
+  if (app->xkb_context_ != nullptr) {
+    xkb_context_unref(app->xkb_context_);
+    app->xkb_context_ = nullptr;
+  }
   app->xkb_context_ = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+  if (app->xkb_context_ == nullptr) {
+    munmap(map, size);
+    close(fd);
+    return;
+  }
   app->xkb_keymap_ = xkb_keymap_new_from_string(app->xkb_context_, map,
                                                 XKB_KEYMAP_FORMAT_TEXT_V1,
                                                 XKB_KEYMAP_COMPILE_NO_FLAGS);
+  if (app->xkb_keymap_ == nullptr) {
+    xkb_context_unref(app->xkb_context_);
+    app->xkb_context_ = nullptr;
+    munmap(map, size);
+    close(fd);
+    return;
+  }
   app->xkb_state_ = xkb_state_new(app->xkb_keymap_);
+  if (app->xkb_state_ == nullptr) {
+    xkb_keymap_unref(app->xkb_keymap_);
+    app->xkb_keymap_ = nullptr;
+    xkb_context_unref(app->xkb_context_);
+    app->xkb_context_ = nullptr;
+  }
   munmap(map, size);
   close(fd);
 }
@@ -963,8 +1025,9 @@ void WaylandApp::keyboard_key(void *data, wl_keyboard *, uint32_t, uint32_t, uin
     }
     char text[8] = {};
     const int n = xkb_state_key_get_utf8(app->xkb_state_, code, text, sizeof(text));
-    if (n > 0 && text[0] >= 32 && text[0] < 127) {
-      app->query_ += text;
+    const unsigned char first = static_cast<unsigned char>(text[0]);
+    if (n > 0 && first >= 32) {
+      app->query_.append(text, static_cast<std::size_t>(n));
       app->set_query(app->query_);
     }
     return;

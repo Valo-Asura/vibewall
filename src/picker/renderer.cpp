@@ -15,6 +15,8 @@
 namespace vibewall::picker {
 
 namespace {
+constexpr std::size_t kMaxResidentTextures = 200;
+
 void init_vips_once() {
   static bool initialized = [] {
     if (VIPS_INIT("vibewallREzero-picker") != 0) {
@@ -270,6 +272,18 @@ std::array<std::uint8_t, 7> glyph(char c) {
 }
 } // namespace
 
+Renderer::~Renderer() {
+  shutdown();
+}
+
+void Renderer::shutdown() {
+  clear_textures();
+  if (program_ != 0) {
+    glDeleteProgram(program_);
+    program_ = 0;
+  }
+}
+
 void Renderer::init() {
   init_vips_once();
   program_ = create_program();
@@ -321,11 +335,42 @@ TextureInfo Renderer::texture_for(const Wallpaper &wallpaper) {
   return texture_for_path(wallpaper.thumb_path);
 }
 
+void Renderer::clear_textures() {
+  for (const auto &[_, texture] : textures_) {
+    if (texture.id != 0) {
+      glDeleteTextures(1, &texture.id);
+    }
+  }
+  textures_.clear();
+  texture_lru_.clear();
+}
+
+void Renderer::touch_texture(const std::string &path) {
+  texture_lru_.remove(path);
+  texture_lru_.push_front(path);
+}
+
+void Renderer::evict_textures_if_needed() {
+  while (textures_.size() > kMaxResidentTextures && !texture_lru_.empty()) {
+    const std::string victim = texture_lru_.back();
+    texture_lru_.pop_back();
+    const auto it = textures_.find(victim);
+    if (it == textures_.end()) {
+      continue;
+    }
+    if (it->second.id != 0) {
+      glDeleteTextures(1, &it->second.id);
+    }
+    textures_.erase(it);
+  }
+}
+
 TextureInfo Renderer::texture_for_path(const std::string &path) {
   if (path.empty()) {
     return {};
   }
   if (auto it = textures_.find(path); it != textures_.end()) {
+    touch_texture(path);
     return it->second;
   }
   try {
@@ -357,6 +402,8 @@ TextureInfo Renderer::texture_for_path(const std::string &path) {
         .height = image.height(),
     };
     textures_[path] = info;
+    touch_texture(path);
+    evict_textures_if_needed();
     return info;
   } catch (const std::exception &err) {
     std::cerr << "texture warning: " << path << ": " << err.what() << '\n';

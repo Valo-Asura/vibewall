@@ -5,7 +5,7 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=%h/.nix-profile/bin/vibewall-daemon
+ExecStart=vibewall-daemon
 Restart=on-failure
 RestartSec=2
 

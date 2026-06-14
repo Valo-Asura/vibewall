@@ -190,6 +190,14 @@ Notes:
 - The WEB view shows the newest 120 cached remote previews at once and keeps
   loading pages asynchronously. While a page is loading, additional WEB filter
   actions report `WEB STILL LOADING` instead of launching overlapping requests.
+- Picker movement and scrolling repaint from memory instead of re-querying
+  SQLite on every frame; data is refreshed only when filters, favorites, local
+  mode, or Wallhaven results change.
+- OpenGL thumbnails are capped with an LRU cache and deleted on picker shutdown
+  so long WEB/grid sessions do not keep growing texture memory.
+- Wallhaven worker completion is synchronized with the UI thread, SFW/NSFW
+  toggles force a fresh WEB request, and daemon IPC clients have short socket
+  timeouts so one stuck client cannot stall the daemon.
 - Video wallpapers are intentionally external: `mpvpaper` used about 98 MiB RSS
   and measurable CPU with the current active video, while `hyprpaper` was not
   running.
