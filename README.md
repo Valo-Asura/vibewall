@@ -58,6 +58,8 @@ command-line workflow.
 - Wallhaven card click selects only; `DOWNLOAD`/`D` saves the remote image, and `APPLY`/`Enter` downloads then applies it.
 - Image backend: `noctalia msg wallpaper-set`.
 - Video backend: `mpvpaper`.
+- Live video apply stops `hyprpaper.service`, `hyprpaper`, and the Nix
+  wrapper-style `.hyprpaper-wrapp` process before starting `mpvpaper`.
 - Theme hook: `matugen image`.
 
 ## Non-Goals
@@ -198,6 +200,8 @@ Notes:
 - Wallhaven worker completion is synchronized with the UI thread, SFW/NSFW
   toggles force a fresh WEB request, and daemon IPC clients have short socket
   timeouts so one stuck client cannot stall the daemon.
+- The daemon also reaps picker child exits from `SIGCHLD`, so a closed picker
+  does not remain as a zombie until the next IPC command.
 - Video wallpapers are intentionally external: `mpvpaper` used about 98 MiB RSS
   and measurable CPU with the current active video, while `hyprpaper` was not
   running.

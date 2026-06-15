@@ -21,10 +21,15 @@ using namespace vibewall;
 
 namespace {
 bool running = true;
+volatile sig_atomic_t child_exit_pending = 0;
 pid_t picker_pid = -1;
 
 void handle_signal(int) {
   running = false;
+}
+
+void handle_child_signal(int) {
+  child_exit_pending = 1;
 }
 
 void install_signal_handlers() {
@@ -34,6 +39,12 @@ void install_signal_handlers() {
   action.sa_flags = 0;
   sigaction(SIGINT, &action, nullptr);
   sigaction(SIGTERM, &action, nullptr);
+
+  struct sigaction child_action {};
+  child_action.sa_handler = handle_child_signal;
+  sigemptyset(&child_action.sa_mask);
+  child_action.sa_flags = SA_NOCLDSTOP;
+  sigaction(SIGCHLD, &child_action, nullptr);
 }
 
 void reap_picker() {
@@ -163,9 +174,14 @@ int main() {
     }
 
     while (running) {
+      if (child_exit_pending != 0) {
+        child_exit_pending = 0;
+        reap_picker();
+      }
       const int client = accept(server, nullptr, nullptr);
       if (client < 0) {
         if (errno == EINTR) {
+          reap_picker();
           continue;
         }
         throw std::runtime_error("accept failed");

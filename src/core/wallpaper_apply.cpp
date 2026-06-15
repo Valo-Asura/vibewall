@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string>
 
 namespace vibewall {
 
@@ -32,6 +33,14 @@ void stop_video_wallpaper() {
   const auto state = xdg_state_home() / "asura/video-wallpaper";
   std::error_code ec;
   std::filesystem::remove(state, ec);
+}
+
+void stop_static_wallpaper_renderer() {
+  if (run_process({"systemctl", "--user", "is-active", "--quiet", "hyprpaper.service"}).exit_code == 0) {
+    run_process({"systemctl", "--user", "stop", "hyprpaper.service"});
+  }
+  run_process({"pkill", "-x", "hyprpaper"});
+  run_process({"pkill", "-f", "\\.hyprpaper-wrapp"});
 }
 
 void run_after_apply_hook(const AppConfig &config, const Wallpaper &wallpaper,
@@ -63,6 +72,7 @@ ApplyResult apply_wallpaper(Database &db, const AppConfig &config, const Wallpap
 
   if (wallpaper.type == WallpaperType::Video) {
     stop_video_wallpaper();
+    stop_static_wallpaper_renderer();
     const auto args = substitute_args(config.backend.video, wallpaper.path, to_string(wallpaper.type),
                                       wallpaper.name, monitor);
     auto result = run_checked(args, "video backend");
