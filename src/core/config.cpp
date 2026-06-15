@@ -49,7 +49,7 @@ AppConfig default_config() {
   cfg.db_path = xdg_data_home() / "vibewallREzero/wallpapers.db";
   cfg.backend.image = {"noctalia", "msg", "wallpaper-set", "%monitor%", "%path%"};
   cfg.backend.image_no_monitor = {"noctalia", "msg", "wallpaper-set", "%path%"};
-  cfg.backend.video = {"mpvpaper", "--fork", "--auto-stop", "--layer", "background",
+  cfg.backend.video = {"mpvpaper", "--fork", "--auto-pause", "--layer", "background",
                        "--mpv-options", "no-audio loop hwdec=auto-safe profile=fast",
                        "%monitor_or_star%", "%path%"};
   cfg.hooks.after_apply = {"matugen", "image", "--source-color-index", "0", "%path%"};
@@ -132,7 +132,7 @@ std::filesystem::path write_default_config_if_missing() {
       << "[backend]\n"
       << "image = [\"noctalia\", \"msg\", \"wallpaper-set\", \"%monitor%\", \"%path%\"]\n"
       << "image_no_monitor = [\"noctalia\", \"msg\", \"wallpaper-set\", \"%path%\"]\n"
-      << "video = [\"mpvpaper\", \"--fork\", \"--auto-stop\", \"--layer\", \"background\", "
+      << "video = [\"mpvpaper\", \"--fork\", \"--auto-pause\", \"--layer\", \"background\", "
          "\"--mpv-options\", \"no-audio loop hwdec=auto-safe profile=fast\", "
          "\"%monitor_or_star%\", \"%path%\"]\n\n"
       << "[hooks]\n"

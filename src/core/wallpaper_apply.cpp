@@ -28,7 +28,7 @@ void remember_video_state(const std::string &path) {
 
 void stop_video_wallpaper() {
   run_process({"pkill", "-x", "mpvpaper"});
-  run_process({"pkill", "-f", "mpvpaper --fork --auto-stop"});
+  run_process({"pkill", "-f", "mpvpaper --fork"});
   run_process({"pkill", "-f", "/mpvpaper .*--layer background"});
   const auto state = xdg_state_home() / "asura/video-wallpaper";
   std::error_code ec;

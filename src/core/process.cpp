@@ -47,7 +47,11 @@ ProcessResult run_process(const std::vector<std::string> &argv) {
   }
 
   int status = 0;
-  if (waitpid(pid, &status, 0) < 0) {
+  pid_t waited = 0;
+  do {
+    waited = waitpid(pid, &status, 0);
+  } while (waited < 0 && errno == EINTR);
+  if (waited < 0) {
     return {127, std::strerror(errno)};
   }
   if (WIFEXITED(status)) {
@@ -91,7 +95,11 @@ ProcessResult spawn_detached(const std::vector<std::string> &argv) {
   }
 
   int status = 0;
-  if (waitpid(pid, &status, 0) < 0) {
+  pid_t waited = 0;
+  do {
+    waited = waitpid(pid, &status, 0);
+  } while (waited < 0 && errno == EINTR);
+  if (waited < 0) {
     return {127, std::strerror(errno)};
   }
   if (WIFEXITED(status)) {

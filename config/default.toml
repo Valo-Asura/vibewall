@@ -15,7 +15,7 @@ target_daemon_rss_mb = 10
 [backend]
 image = ["noctalia", "msg", "wallpaper-set", "%monitor%", "%path%"]
 image_no_monitor = ["noctalia", "msg", "wallpaper-set", "%path%"]
-video = ["mpvpaper", "--fork", "--auto-stop", "--layer", "background", "--mpv-options", "no-audio loop hwdec=auto-safe profile=fast", "%monitor_or_star%", "%path%"]
+video = ["mpvpaper", "--fork", "--auto-pause", "--layer", "background", "--mpv-options", "no-audio loop hwdec=auto-safe profile=fast", "%monitor_or_star%", "%path%"]
 
 [hooks]
 after_apply = ["matugen", "image", "--source-color-index", "0", "%path%"]

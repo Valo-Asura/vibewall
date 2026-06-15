@@ -120,11 +120,13 @@ std::string handle_command(const std::string &cmd, Database &db, const AppConfig
   }
   if (cmd == "close") {
     close_picker();
+    restore_last_wallpaper(db, config);
     return "closed\n";
   }
   if (cmd == "toggle") {
     if (picker_is_running()) {
       close_picker();
+      restore_last_wallpaper(db, config);
       return "closed\n";
     }
     open_picker();
@@ -176,7 +178,11 @@ int main() {
     while (running) {
       if (child_exit_pending != 0) {
         child_exit_pending = 0;
+        const bool picker_was_alive = picker_pid > 0;
         reap_picker();
+        if (picker_was_alive && picker_pid <= 0) {
+          restore_last_wallpaper(db, config);
+        }
       }
       const int client = accept(server, nullptr, nullptr);
       if (client < 0) {
